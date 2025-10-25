@@ -1,32 +1,52 @@
-cmake_minimum_required(VERSION 3.10)
+cmake_minimum_required(VERSION 3.8)
 project(bf_msp_bridge_cpp)
 
-set(CMAKE_CXX_STANDARD 17)
-set(CMAKE_CXX_STANDARD_REQUIRED ON)
+if(CMAKE_COMPILER_IS_GNUCXX OR CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  add_compile_options(-Wall -Wextra -Wpedantic)
+endif()
 
+# find dependencies
 find_package(ament_cmake REQUIRED)
 find_package(rclcpp REQUIRED)
 find_package(std_msgs REQUIRED)
-find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
+find_package(sensor_msgs REQUIRED)
+find_package(mavros_msgs REQUIRED)
 
-add_executable(msp_bridge src/msp_bridge.cpp)
-target_include_directories(msp_bridge PUBLIC
+# Add executable FIRST
+add_executable(bf_msp_bridge src/msp_bridge.cpp)
+
+# Add include directories
+target_include_directories(bf_msp_bridge PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>)
 
-ament_target_dependencies(msp_bridge rclcpp std_msgs sensor_msgs geometry_msgs)
+# Set C++ standard
+target_compile_features(bf_msp_bridge PUBLIC c_std_99 cxx_std_17)
 
-install(TARGETS msp_bridge DESTINATION lib/${PROJECT_NAME})
+# THEN add dependencies (AFTER the target is created)
+ament_target_dependencies(bf_msp_bridge
+  rclcpp
+  std_msgs
+  geometry_msgs
+  sensor_msgs
+  mavros_msgs
+)
 
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/include)
-  install(DIRECTORY include/ DESTINATION include)
-endif()
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/config)
-  install(DIRECTORY config DESTINATION share/${PROJECT_NAME})
-endif()
-if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/launch)
-  install(DIRECTORY launch DESTINATION share/${PROJECT_NAME})
+# Install targets
+install(TARGETS bf_msp_bridge
+  DESTINATION lib/${PROJECT_NAME})
+
+# Install launch files (if you have any)
+# install(DIRECTORY launch
+#   DESTINATION share/${PROJECT_NAME}/
+# )
+
+if(BUILD_TESTING)
+  find_package(ament_lint_auto REQUIRED)
+  set(ament_cmake_copyright_FOUND TRUE)
+  set(ament_cmake_cpplint_FOUND TRUE)
+  ament_lint_auto_find_test_dependencies()
 endif()
 
 ament_package()

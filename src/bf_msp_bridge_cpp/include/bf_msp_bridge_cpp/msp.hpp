@@ -6,20 +6,22 @@
 
 // MSP IDs (core subset)
 enum : uint16_t {
-  MSP_API_VERSION     = 1,
-  MSP_FC_VARIANT      = 2,
-  MSP_FC_VERSION      = 3,
-  MSP_STATUS          = 101,
-  MSP_ATTITUDE        = 108,
-  MSP_IMU             = 102,
-  MSP_BATTERY_STATE   = 130,
-  MSP_MOTOR           = 104,
-  MSP_RC              = 105,
-  MSP_SET_RAW_RC      = 200,   // command
+  MSP_API_VERSION = 1,
+  MSP_FC_VARIANT = 2,
+  MSP_FC_VERSION = 3,
+  MSP_STATUS = 101,
+  MSP_RAW_IMU = 102,
+  MSP_MOTOR = 104,
+  MSP_RC = 105,
+  MSP_ATTITUDE = 108,
+  MSP_ALTITUDE = 109,
+  MSP_ANALOG = 110,
+  MSP_BATTERY_STATE = 130,
+  MSP_SET_RAW_RC = 200, // command
 };
 
-// MSP v1 framing: $M<  size cmd payload checksum
-// We’ll use v1 for simplicity (Betaflight still supports it).
+// MSP v1 framing: $M< size cmd payload checksum
+// We'll use v1 for simplicity (Betaflight still supports it).
 namespace msp {
 
 // Build a request (no payload)

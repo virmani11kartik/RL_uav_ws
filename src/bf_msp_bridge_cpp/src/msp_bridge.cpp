@@ -3,6 +3,8 @@
 #include <std_msgs/msg/float32_multi_array.hpp>
 #include <geometry_msgs/msg/vector3.hpp>
 #include <sensor_msgs/msg/imu.hpp>
+#include <sensor_msgs/msg/battery_state.hpp>
+#include <mavros_msgs/msg/state.hpp>
 
 #include <fcntl.h>
 #include <termios.h>
@@ -26,10 +28,16 @@ public:
     baud_ = this->declare_parameter<int>("baudrate", 115200);
     rate_hz_ = this->declare_parameter<int>("request_rate_hz", 100);
 
+    // Legacy publishers
     pub_att_ = this->create_publisher<geometry_msgs::msg::Vector3>("/msp/attitude", 10);
     pub_imu_ = this->create_publisher<sensor_msgs::msg::Imu>("/msp/imu", 10);
     pub_mot_ = this->create_publisher<std_msgs::msg::UInt16MultiArray>("/msp/motors", 10);
+    
+    // New publishers
+    pub_battery_ = this->create_publisher<sensor_msgs::msg::BatteryState>("/msp/battery", 10);
+    pub_state_ = this->create_publisher<mavros_msgs::msg::State>("/msp/state", 10);
 
+    // Legacy subscriber
     sub_rc_ = this->create_subscription<std_msgs::msg::UInt16MultiArray>(
       "/msp/rc_raw", 10, std::bind(&BfMspBridge::on_rc, this, std::placeholders::_1));
 
@@ -37,6 +45,11 @@ public:
     reader_ = std::thread(&BfMspBridge::readerLoop, this);
     timer_  = this->create_wall_timer(std::chrono::milliseconds(1000 / std::max(1, rate_hz_)),
                                       std::bind(&BfMspBridge::tick, this));
+    
+    // State update timer
+    timer_state_ = this->create_wall_timer(100ms, std::bind(&BfMspBridge::publishState, this));
+    
+    RCLCPP_INFO(get_logger(), "BfMspBridge initialized");
   }
 
   ~BfMspBridge() override {
@@ -69,15 +82,29 @@ private:
 
   void send(const std::vector<uint8_t>& bytes) {
     std::lock_guard<std::mutex> lk(tx_m_);
-    if (fd_ >= 0) ::write(fd_, bytes.data(), bytes.size());
+    if (fd_ >= 0) {
+      ssize_t written = ::write(fd_, bytes.data(), bytes.size());
+      if (written < 0) {
+        RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 1000, "Write failed");
+      }
+    }
   }
 
   void tick() {
-    // poll typical telemetry (you can rotate/add more as needed)
+    // Poll typical telemetry
     send(msp::makeRequest(MSP_ATTITUDE));
-    send(msp::makeRequest(MSP_IMU));
+    send(msp::makeRequest(MSP_RAW_IMU));
     send(msp::makeRequest(MSP_MOTOR));
-    // You can also poll MSP_BATTERY_STATE if you want
+    send(msp::makeRequest(MSP_STATUS));
+    send(msp::makeRequest(MSP_ANALOG));
+  }
+
+  void publishState() {
+    mavros_msgs::msg::State state;
+    state.header.stamp = this->get_clock()->now();
+    state.armed = is_armed_;
+    state.connected = true;
+    pub_state_->publish(state);
   }
 
   void on_rc(const std_msgs::msg::UInt16MultiArray::SharedPtr msg) {
@@ -93,6 +120,8 @@ private:
     while (n < 8) { msp::push_u16(pl, 1500); ++n; }
 
     send(msp::makeRequest(MSP_SET_RAW_RC, pl));
+    
+    RCLCPP_DEBUG(get_logger(), "Sent RC command: %zu channels", n);
   }
 
   void readerLoop() {
@@ -114,6 +143,7 @@ private:
 
   static int16_t rd16le(const uint8_t* p) { return static_cast<int16_t>(p[0] | (p[1]<<8)); }
   static uint16_t ru16le(const uint8_t* p){ return static_cast<uint16_t>(p[0] | (p[1]<<8)); }
+  static uint32_t ru32le(const uint8_t* p){ return p[0] | (p[1]<<8) | (p[2]<<16) | (p[3]<<24); }
 
   void handleFrame(uint8_t cmd, const std::vector<uint8_t>& pl) {
     auto now = this->get_clock()->now();
@@ -131,7 +161,7 @@ private:
       sensor_msgs::msg::Imu imu;
       imu.header.stamp = now;
       imu.header.frame_id = "base_link";
-      // We’ll leave orientation as 0; consumers can use /msp/attitude for angles.
+      // We'll leave orientation as 0; consumers can use /msp/attitude for angles.
       pub_imu_->publish(imu);
     }
     else if (cmd == MSP_MOTOR && pl.size() >= 8*2) {
@@ -140,8 +170,41 @@ private:
       for (int i=0;i<8;i++) m.data[i] = ru16le(&pl[i*2]);
       pub_mot_->publish(m);
     }
-    // You can add MSP_IMU raw accel/gyro parsing if desired:
-    // MSP_IMU: int16 ax, ay, az, gx, gy, gz
+    else if (cmd == MSP_STATUS && pl.size() >= 11) {
+      // MSP_STATUS format:
+      // uint16 cycle_time, uint16 i2c_errors, uint16 sensors, uint32 flags, uint8 current_set
+      uint32_t flags = ru32le(&pl[6]);
+      
+      // Bit 0 = ARM flag
+      bool was_armed = is_armed_;
+      is_armed_ = (flags & 0x01) != 0;
+      
+      if (was_armed != is_armed_) {
+        RCLCPP_INFO(get_logger(), "ARM state changed: %s", is_armed_ ? "ARMED" : "DISARMED");
+      }
+    }
+    else if (cmd == MSP_ANALOG && pl.size() >= 7) {
+      // MSP_ANALOG format:
+      // uint8 vbat (0.1V), uint16 mAh, uint16 rssi, uint16 amperage (0.01A)
+      uint8_t vbat = pl[0];
+      uint16_t mah = ru16le(&pl[1]);
+      uint16_t amperage = ru16le(&pl[5]);
+      
+      sensor_msgs::msg::BatteryState battery;
+      battery.header.stamp = now;
+      battery.header.frame_id = "base_link";
+      battery.voltage = vbat / 10.0f;
+      battery.current = amperage / 100.0f;
+      battery.charge = mah / 1000.0f;  // Convert mAh to Ah
+      battery.percentage = -1.0f;  // Unknown
+      battery.power_supply_status = sensor_msgs::msg::BatteryState::POWER_SUPPLY_STATUS_UNKNOWN;
+      battery.power_supply_health = sensor_msgs::msg::BatteryState::POWER_SUPPLY_HEALTH_UNKNOWN;
+      battery.power_supply_technology = sensor_msgs::msg::BatteryState::POWER_SUPPLY_TECHNOLOGY_LIPO;
+      
+      pub_battery_->publish(battery);
+    }
+    // You can add MSP_RAW_IMU parsing if desired:
+    // MSP_RAW_IMU: int16 ax, ay, az, gx, gy, gz, mx, my, mz
   }
 
   // members
@@ -151,11 +214,15 @@ private:
   std::mutex tx_m_;
   std::thread reader_;
   rclcpp::TimerBase::SharedPtr timer_;
+  rclcpp::TimerBase::SharedPtr timer_state_;
   std::atomic<bool> running_{false};
+  std::atomic<bool> is_armed_{false};
 
   rclcpp::Publisher<geometry_msgs::msg::Vector3>::SharedPtr pub_att_;
-  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr           pub_imu_;
+  rclcpp::Publisher<sensor_msgs::msg::Imu>::SharedPtr pub_imu_;
   rclcpp::Publisher<std_msgs::msg::UInt16MultiArray>::SharedPtr pub_mot_;
+  rclcpp::Publisher<sensor_msgs::msg::BatteryState>::SharedPtr pub_battery_;
+  rclcpp::Publisher<mavros_msgs::msg::State>::SharedPtr pub_state_;
   rclcpp::Subscription<std_msgs::msg::UInt16MultiArray>::SharedPtr sub_rc_;
 };
 
