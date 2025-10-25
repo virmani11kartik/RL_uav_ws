@@ -1,0 +1,18 @@
+{
+    "python.autoComplete.extraPaths": [
+        "/home/kartik/RL_uav_ws/install/betaflight_msp_bridge/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/reference_trajectory/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/hamr_interfaces/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/hamr_control/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/compa_control_py/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ],
+    "python.analysis.extraPaths": [
+        "/home/kartik/RL_uav_ws/install/betaflight_msp_bridge/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/reference_trajectory/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/hamr_interfaces/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/hamr_control/lib/python3.12/site-packages",
+        "/home/kartik/hamr_ws/install/compa_control_py/lib/python3.12/site-packages",
+        "/opt/ros/jazzy/lib/python3.12/site-packages"
+    ]
+}
