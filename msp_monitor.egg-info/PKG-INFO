@@ -1,0 +1,20 @@
+Metadata-Version: 2.4
+Name: msp_monitor
+Version: 1.0.0
+Summary: MSP serial data monitor and visualizer with PyQt GUI and pyqtgraph plots
+Author: uav_0
+Classifier: Programming Language :: Python :: 3
+Classifier: Operating System :: POSIX :: Linux
+Requires-Python: >=3.8
+Requires-Dist: PyQt5>=5.15; platform_machine != "aarch64"
+Requires-Dist: PySide6>=6.7; platform_machine == "aarch64"
+Requires-Dist: pyqtgraph>=0.13.3
+Requires-Dist: pyserial>=3.5
+Requires-Dist: numpy>=1.25
+Requires-Dist: matplotlib>=3.8
+Requires-Dist: pandas>=2.0
+Dynamic: author
+Dynamic: classifier
+Dynamic: requires-dist
+Dynamic: requires-python
+Dynamic: summary

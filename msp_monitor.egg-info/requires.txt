@@ -1,0 +1,11 @@
+pyqtgraph>=0.13.3
+pyserial>=3.5
+numpy>=1.25
+matplotlib>=3.8
+pandas>=2.0
+
+[:platform_machine != "aarch64"]
+PyQt5>=5.15
+
+[:platform_machine == "aarch64"]
+PySide6>=6.7

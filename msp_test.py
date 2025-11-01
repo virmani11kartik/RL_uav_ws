@@ -4,7 +4,7 @@ import sys, time, struct, serial
 from typing import Optional, Tuple, List
 
 # ======== USER-ADJUSTABLE DEFAULTS ========
-DEFAULT_PORT   = "COM6"
+DEFAULT_PORT   = "/dev/ttyACM0"  
 BAUD           = 115200
 TIMEOUT        = 1.0
 

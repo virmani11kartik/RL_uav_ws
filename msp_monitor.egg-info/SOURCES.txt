@@ -1,0 +1,8 @@
+README.md
+setup.py
+msp_monitor.egg-info/PKG-INFO
+msp_monitor.egg-info/SOURCES.txt
+msp_monitor.egg-info/dependency_links.txt
+msp_monitor.egg-info/entry_points.txt
+msp_monitor.egg-info/requires.txt
+msp_monitor.egg-info/top_level.txt

@@ -3,7 +3,7 @@
 import serial, struct, time, sys
 from typing import Optional, Tuple, List
 
-PORT = "COM6"
+PORT = "/dev/ttyACM0"
 BAUD = 115200
 TIMEOUT = 1.0
 

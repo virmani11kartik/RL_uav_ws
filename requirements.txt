@@ -1,0 +1,8 @@
+PyQt5; platform_machine != "aarch64"
+PySide6; platform_machine == "aarch64"
+pyqtgraph
+pyserial
+numpy
+matplotlib
+pandas
+
