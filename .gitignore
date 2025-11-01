@@ -23,3 +23,6 @@ dist/
 .vscode/
 
 msp_venv/
+
+# ignore venv
+msp_venv/
