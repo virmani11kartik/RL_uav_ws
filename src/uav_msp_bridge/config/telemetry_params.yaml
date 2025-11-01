@@ -1,0 +1,28 @@
+telemetry_node:
+  ros__parameters:
+    # Serial Connection Settings
+    device_path: "/dev/ttyACM0"
+    baud: 115200
+    
+    # Poll Rates (Hz)
+    poll_hz_high: 20.0      # attitude, IMU, RC, motors, altitude
+    poll_hz_medium: 5.0     # status, battery, temperature
+    poll_hz_low: 1.0        # GPS, ESC, arming flags, servos
+    
+    # High Priority Data
+    enable_attitude: true
+    enable_imu: true
+    enable_altitude: true
+    enable_motors: false
+    enable_rc: true
+    
+    # Medium Priority Data
+    enable_status: true
+    enable_battery: true
+    enable_temperature: false
+    
+    # Low Priority Data
+    enable_gps: false
+    enable_servos: false
+    enable_esc: false
+    enable_arming_flags: true

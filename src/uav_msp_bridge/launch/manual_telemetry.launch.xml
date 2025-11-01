@@ -1,0 +1,40 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Arguments for easy override -->
+    <arg name="device_path" default="/dev/ttyACM0"/>
+    <arg name="baud" default="115200"/>
+    
+    <!-- Telemetry Node with inline parameters -->
+    <node pkg="uav_msp_bridge" 
+          exec="telemetry_node" 
+          name="telemetry_node" 
+          output="screen">
+        
+        <!-- Serial Connection Settings -->
+        <param name="device_path" value="$(var device_path)"/>
+        <param name="baud" value="$(var baud)"/>
+        
+        <!-- Poll Rates (Hz) -->
+        <param name="poll_hz_high" value="20.0"/>
+        <param name="poll_hz_medium" value="5.0"/>
+        <param name="poll_hz_low" value="1.0"/>
+        
+        <!-- High Priority Data -->
+        <param name="enable_attitude" value="true"/>
+        <param name="enable_imu" value="true"/>
+        <param name="enable_altitude" value="true"/>
+        <param name="enable_motors" value="false"/>
+        <param name="enable_rc" value="true"/>
+        
+        <!-- Medium Priority Data -->
+        <param name="enable_status" value="true"/>
+        <param name="enable_battery" value="true"/>
+        <param name="enable_temperature" value="false"/>
+        
+        <!-- Low Priority Data -->
+        <param name="enable_gps" value="false"/>
+        <param name="enable_servos" value="false"/>
+        <param name="enable_esc" value="false"/>
+        <param name="enable_arming_flags" value="true"/>
+    </node>
+</launch>

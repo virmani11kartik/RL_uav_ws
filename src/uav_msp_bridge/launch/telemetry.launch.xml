@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<launch>
+    <!-- Arguments -->
+    <arg name="device_path" default="/dev/ttyACM0" 
+         description="Serial device path for flight controller"/>
+    <arg name="baud" default="115200" 
+         description="Baud rate for serial communication"/>
+    <arg name="params_file" default="$(find-pkg-share uav_msp_bridge)/config/telemetry_params.yaml"
+         description="Path to parameters file"/>
+    
+    <!-- Telemetry Node -->
+    <node pkg="uav_msp_bridge" 
+          exec="telemetry_node" 
+          name="telemetry_node" 
+          output="screen">
+        
+        <!-- Load parameters from file -->
+        <param from="$(var params_file)"/>
+    </node>
+</launch>
