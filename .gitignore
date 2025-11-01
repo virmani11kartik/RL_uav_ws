@@ -1,3 +1,23 @@
 build/
 install/
 log/
+
+# Python virtual environments
+msp_venv/
+venv/
+.env/
+*.env
+
+# Python cache / build files
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Editor / system files
+*.swp
+*.swo
+.DS_Store
+.idea/
+.vscode/
