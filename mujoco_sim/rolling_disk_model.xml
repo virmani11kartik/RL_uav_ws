@@ -1,0 +1,52 @@
+
+<mujoco model="rolling_disk">
+    <!-- Compiler settings -->
+    <compiler angle="radian" coordinate="local"/>
+
+    <!-- Simulation options -->
+    <option timestep="0.001" gravity="0 0 -9.81" integrator="Euler">
+        <flag warmstart="disable"/>
+    </option>
+
+    <!-- Contact parameters matching custom implementation -->
+    <default>
+        <geom friction="0.0 0.0 0.01" condim="6" solimp="0.99 0.995 0.001" solref="0.01 1.0"/>
+        <!--
+        friction: [slide, torsional, rolling]
+        # condim=6 activates sliding+torsional+rolling friction so damping matches the 2D model
+        solimp: contact impedance [dmin dwidth midpoint power]  -> strong contact constraints
+        solref: [timeconst, dampratio]
+          timeconst = sqrt(mass/stiffness) = 0.010000
+          dampratio = damping/(2*sqrt(mass*stiffness)) = 1.000000
+        Matches custom: stiffness=10000.0, damping=200
+        -->
+    </default>
+
+    <!-- Assets (materials for visualization) -->
+    <asset>
+        <texture type="skybox" builtin="gradient" rgb1="0.3 0.5 0.7" rgb2="0 0 0" width="512" height="512"/>
+        <texture name="grid" type="2d" builtin="checker" rgb1="0.2 0.2 0.2" rgb2="0.3 0.3 0.3" width="512" height="512"/>
+        <material name="grid" texture="grid" texrepeat="1 1" texuniform="true" reflectance="0.2"/>
+    </asset>
+
+    <!-- World body (fixed objects) -->
+    <worldbody>
+        <!-- Ground plane -->
+        <geom name="ground" type="plane" size="5 5 0.1" rgba="0.5 0.5 0.5 1" material="grid"/>
+
+        <!-- Light source -->
+        <light directional="true" diffuse="0.8 0.8 0.8" specular="0.2 0.2 0.2" pos="0 0 5" dir="0 0 -1"/>
+
+        <!-- Thin disk (wheel) -->
+        <body name="disk" pos="0 0 1.0">
+            <inertial pos="0 0 0" mass="1.0" diaginertia="0.010033 0.020000 0.010033"/>
+            <!-- Disk geometry: cylinder with axle along Y-axis -->
+            <geom name="disk_geom" type="cylinder" size="0.2 0.01" euler="1.57079632679 0 0" rgba="0.2 0.4 0.8 1"/>
+            <!-- Visual indicator to show disk rotation -->
+            <geom name="disk_indicator" type="capsule" fromto="0 0 0  0.2 0 0" size="0.01" density="0" contype="0" conaffinity="0" rgba="1 0.2 0.2 1"/>
+
+            <!-- Initial velocity (set via qvel in simulation) -->
+            <freejoint/>
+        </body>
+    </worldbody>
+</mujoco>
