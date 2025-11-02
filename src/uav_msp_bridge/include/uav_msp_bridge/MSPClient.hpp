@@ -1,82 +1,57 @@
-#ifndef UAV_MSP_BRIDGE_MSP_CLIENT_HPP
-#define UAV_MSP_BRIDGE_MSP_CLIENT_HPP
-
+#pragma once
+#include <cstdint>
 #include <string>
 #include <vector>
-#include <cstdint>
-#include <chrono>
-#include <fcntl.h>
-#include <termios.h>
+#include <mutex>
 
 namespace uav_msp_bridge {
 
 class MSPClient {
 public:
-    /**
-     * Constructor
-     * @param port Serial port path (e.g., "/dev/ttyACM0")
-     * @param baud Baud rate (e.g., 115200)
-     */
-    MSPClient(const std::string& port, int baud);
-    
-    /**
-     * Destructor - closes serial port if open
-     */
-    ~MSPClient();
-    
-    /**
-     * Open serial connection
-     * @return true if successful
-     */
-    bool open();
-    
-    /**
-     * Close serial connection
-     */
-    void close();
-    
-    /**
-     * Check if serial port is open
-     * @return true if open
-     */
-    bool isOpen() const;
-    
-    /**
-     * Send MSP request and wait for response
-     * @param cmd MSP command ID
-     * @param payload Command payload (empty for most read commands)
-     * @param response Output vector for response payload
-     * @param timeout_sec Timeout in seconds
-     * @return true if response received successfully
-     */
-    bool request(uint8_t cmd, const std::vector<uint8_t>& payload,
-                 std::vector<uint8_t>& response, double timeout_sec = 0.5);
+  MSPClient(const std::string& device, int baud);
+  ~MSPClient();
+
+  bool open();
+  void close();
+  bool isOpen() const;
+
+  // Thread-safe request: writes a command and reads the matching response payload into 'out'.
+  // Returns true if a valid frame (cmd-matched + checksum/CRC ok) was received within timeout_s.
+  bool request(uint16_t cmd, const std::vector<uint8_t>& payload,
+               std::vector<uint8_t>& out, double timeout_s);
 
 private:
-    /**
-     * Build MSP v1 frame
-     */
-    std::vector<uint8_t> buildFrame(uint8_t cmd, const std::vector<uint8_t>& payload);
-    
-    /**
-     * Read one MSP frame from serial port
-     * @param direction Output: '>' for response, '!' for error
-     * @param cmd Output: command ID
-     * @param payload Output: payload bytes
-     * @return true if valid frame read successfully
-     */
-    bool readFrame(uint8_t& direction, uint8_t& cmd, std::vector<uint8_t>& payload);
-    
-    /**
-     * Read single byte with timeout
-     */
-    bool readByte(uint8_t& byte, double timeout_sec);
-    
-    std::string port_;
-    int baud_;
-    int fd_;
+  // ---- MSP wire helpers ----
+  enum class Proto { V1, V2 };
+  struct Frame {
+    Proto proto = Proto::V1;
+    uint16_t cmd = 0;
+    std::vector<uint8_t> payload;
+  };
+
+  // io
+  bool writeAll(const uint8_t* data, size_t n);
+  ssize_t readSome(uint8_t* buf, size_t n, double timeout_s);
+  bool drainInput(double seconds);
+
+  // frame build/parse
+  bool writeFrameV1(uint16_t cmd, const std::vector<uint8_t>& payload);
+  bool writeFrameV2(uint16_t cmd, const std::vector<uint8_t>& payload); // not used by default
+  bool readFrame(Frame& f, double timeout_s);
+  bool findHeader(uint8_t& h2, uint8_t& h3, double timeout_s);
+
+  static uint8_t checksumV1(uint8_t size, uint8_t cmd, const uint8_t* p, size_t n);
+  static uint16_t crc16_ccitt(const uint8_t* data, size_t len, uint16_t start = 0);
+
+  // little-endian helpers
+  static inline uint16_t le16(const uint8_t* p) { return (uint16_t)(p[0] | (p[1] << 8)); }
+  static inline uint32_t le32(const uint8_t* p) { return (uint32_t)(p[0] | (p[1] << 8) | (p[2] << 16) | (p[3] << 24)); }
+
+private:
+  std::string dev_;
+  int baud_;
+  int fd_ = -1;
+  std::mutex io_mtx_;
 };
 
 } // namespace uav_msp_bridge
-
-#endif // UAV_MSP_BRIDGE_MSP_CLIENT_HPP

@@ -19,6 +19,7 @@
 #include <sstream>
 #include <iomanip>
 #include <algorithm>
+#include <mutex>
 
 using uav_msp_bridge::MSPClient;
 
@@ -69,9 +70,9 @@ public:
         auto_disarm_on_shutdown_ = declare_parameter<bool>("auto_disarm_on_shutdown", true);
         
         // Telemetry parameters - multiple poll rates
-        poll_hz_high_ = declare_parameter<double>("poll_hz_high", 20.0);
-        poll_hz_medium_ = declare_parameter<double>("poll_hz_medium", 5.0);
-        poll_hz_low_ = declare_parameter<double>("poll_hz_low", 1.0);
+        poll_hz_high_ = declare_parameter<double>("poll_hz_high", 10.0);
+        poll_hz_medium_ = declare_parameter<double>("poll_hz_medium", 2.0);
+        poll_hz_low_ = declare_parameter<double>("poll_hz_low", 0.5);
         
         // Enable flags for each data category
         enable_att_ = declare_parameter<bool>("enable_attitude", true);
@@ -80,12 +81,12 @@ public:
         enable_bat_ = declare_parameter<bool>("enable_battery", true);
         enable_mot_ = declare_parameter<bool>("enable_motors", true);
         enable_srv_ = declare_parameter<bool>("enable_servos", false);
-        enable_rc_ = declare_parameter<bool>("enable_rc", true);
+        enable_rc_ = declare_parameter<bool>("enable_rc", false);
         enable_gps_ = declare_parameter<bool>("enable_gps", false);
         enable_status_ = declare_parameter<bool>("enable_status", true);
         enable_temp_ = declare_parameter<bool>("enable_temperature", false);
         enable_esc_ = declare_parameter<bool>("enable_esc", false);
-        enable_arming_ = declare_parameter<bool>("enable_arming_flags", true);
+        enable_arming_ = declare_parameter<bool>("enable_arming_flags", false);
         
         RCLCPP_INFO(get_logger(), "=================================================");
         RCLCPP_INFO(get_logger(), "     UNIFIED FC CONTROL & TELEMETRY NODE");
@@ -94,11 +95,12 @@ public:
         RCLCPP_INFO(get_logger(), "  Port: %s @ %d baud", port_.c_str(), baud_);
         RCLCPP_INFO(get_logger(), "  Motors: %d (range %d-%d)", num_motors_, min_throttle_, max_throttle_);
         RCLCPP_INFO(get_logger(), "  Safety: %s (timeout: %d ms)", 
-                   safety_enabled_ ? "enabled" : "disabled", command_timeout_ms_);
+                safety_enabled_ ? "enabled" : "disabled", command_timeout_ms_);
         RCLCPP_INFO(get_logger(), "  Poll rates: High=%.1f Hz, Medium=%.1f Hz, Low=%.1f Hz", 
-                   poll_hz_high_, poll_hz_medium_, poll_hz_low_);
+                poll_hz_high_, poll_hz_medium_, poll_hz_low_);
         
         current_motor_values_.resize(num_motors_, min_throttle_);
+        last_command_time_ = now();
         
         // Open serial connection
         client_ = std::make_unique<MSPClient>(port_, baud_);
@@ -109,19 +111,31 @@ public:
         
         RCLCPP_INFO(get_logger(), "✓ Connected to FC on %s @ %d baud", port_.c_str(), baud_);
         
-        last_command_time_ = now();
-        
         std::this_thread::sleep_for(std::chrono::milliseconds(500));
-        fetchFCInfo();
+        
+        // ========== CREATE PUBLISHERS FIRST ==========
+        // Create all publishers BEFORE fetching FC info or creating timers
+        RCLCPP_INFO(get_logger(), "Creating publishers...");
+        createPublishers();
+        RCLCPP_INFO(get_logger(), "✓ Publishers created");
         
         // ========== CREATE SUBSCRIBERS ==========
+        RCLCPP_INFO(get_logger(), "Creating subscribers...");
         createSubscribers();
+        RCLCPP_INFO(get_logger(), "✓ Subscribers created");
         
-        // ========== CREATE PUBLISHERS ==========
-        // createPublishers();
+        // ========== FETCH FC INFO (safely after publishers exist) ==========
+        try {
+            fetchFCInfo();
+        } catch (const std::exception& e) {
+            RCLCPP_ERROR(get_logger(), "Failed to fetch FC info: %s", e.what());
+        }
         
-        // ========== CREATE TIMERS ==========
+        // ========== CREATE TIMERS LAST ==========
+        // Create timers last to prevent race conditions
+        RCLCPP_INFO(get_logger(), "Starting telemetry timers...");
         createTimers();
+        RCLCPP_INFO(get_logger(), "✓ Timers started");
         
         RCLCPP_INFO(get_logger(), "=================================================");
         RCLCPP_INFO(get_logger(), "Motor Control Topics:");
@@ -281,6 +295,12 @@ private:
             RCLCPP_INFO(get_logger(), "[DEBUG] %s", msg.c_str());
         }
     }
+
+    bool requestMSP(uint8_t cmd, const std::vector<uint8_t>& payload, 
+                    std::vector<uint8_t>& response, double timeout = 0.1) {
+        std::lock_guard<std::mutex> lock(msp_mutex_);
+        return client_->request(cmd, payload, response, timeout);
+    }
     
     void fetchFCInfo() {
         std::vector<uint8_t> resp;
@@ -288,16 +308,24 @@ private:
         
         RCLCPP_INFO(get_logger(), "Fetching flight controller information...");
         
-        if (client_->request(MSP_API_VERSION, {}, resp, 0.5) && resp.size() >= 3) {
+        // API Version
+        if (requestMSP(MSP_API_VERSION, {}, resp, 0.5) && resp.size() >= 3) {
             info << "API: " << (int)resp[0] << "." << (int)resp[1] << "." << (int)resp[2] << " | ";
             RCLCPP_INFO(get_logger(), "  API Version: %d.%d.%d", resp[0], resp[1], resp[2]);
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        if (client_->request(MSP_FC_VARIANT, {}, resp, 0.5)) {
-            std::string variant(resp.begin(), resp.end());
-            variant.erase(std::remove(variant.begin(), variant.end(), '\0'), variant.end());
+        // FC Variant
+        if (requestMSP(MSP_FC_VARIANT, {}, resp, 0.5) && !resp.empty()) {
+            // Safely extract string - limit to response size
+            std::string variant;
+            variant.reserve(resp.size());
+            for (size_t i = 0; i < resp.size() && resp[i] != '\0'; ++i) {
+                if (std::isprint(resp[i])) {
+                    variant += static_cast<char>(resp[i]);
+                }
+            }
             if (!variant.empty()) {
                 info << "Variant: " << variant << " | ";
                 RCLCPP_INFO(get_logger(), "  FC Variant: %s", variant.c_str());
@@ -306,34 +334,61 @@ private:
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        if (client_->request(MSP_FC_VERSION, {}, resp, 0.5) && resp.size() >= 3) {
+        // FC Version
+        if (requestMSP(MSP_FC_VERSION, {}, resp, 0.5) && resp.size() >= 3) {
             info << "Version: " << (int)resp[0] << "." << (int)resp[1] << "." << (int)resp[2] << " | ";
             RCLCPP_INFO(get_logger(), "  FC Version: %d.%d.%d", resp[0], resp[1], resp[2]);
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        if (client_->request(MSP_BOARD_INFO, {}, resp, 0.5)) {
-            std::string board(resp.begin(), resp.end());
-            board.erase(std::remove(board.begin(), board.end(), '\0'), board.end());
+        // Board Info - often contains binary data, handle carefully
+        if (requestMSP(MSP_BOARD_INFO, {}, resp, 0.5) && !resp.empty()) {
+            // Extract board identifier (first 4 bytes are typically the board ID as string)
+            std::string board;
+            board.reserve(std::min(resp.size(), size_t(32))); // Reasonable limit
+            for (size_t i = 0; i < resp.size() && i < 32 && resp[i] != '\0'; ++i) {
+                if (std::isprint(resp[i])) {
+                    board += static_cast<char>(resp[i]);
+                } else {
+                    break; // Stop at first non-printable character
+                }
+            }
             if (!board.empty()) {
                 info << "Board: " << board << " | ";
+                RCLCPP_INFO(get_logger(), "  Board: %s", board.c_str());
             }
         }
         
         std::this_thread::sleep_for(std::chrono::milliseconds(100));
         
-        if (client_->request(MSP_NAME, {}, resp, 0.5)) {
-            std::string name(resp.begin(), resp.end());
-            name.erase(std::remove(name.begin(), name.end(), '\0'), name.end());
+        // Craft Name
+        if (requestMSP(MSP_NAME, {}, resp, 0.5) && !resp.empty()) {
+            // Safely extract craft name
+            std::string name;
+            name.reserve(std::min(resp.size(), size_t(16))); // Names are typically short
+            for (size_t i = 0; i < resp.size() && i < 16 && resp[i] != '\0'; ++i) {
+                if (std::isprint(resp[i])) {
+                    name += static_cast<char>(resp[i]);
+                }
+            }
             if (!name.empty()) {
                 info << "Name: " << name;
+                RCLCPP_INFO(get_logger(), "  Craft Name: %s", name.c_str());
             }
         }
         
-        auto msg = std_msgs::msg::String();
-        msg.data = info.str();
-        msp_fc_info_pub_->publish(msg);
+        std::string info_str = info.str();
+        if (!info_str.empty()) {
+            RCLCPP_INFO(get_logger(), "  Summary: %s", info_str.c_str());
+            
+            // Only publish if publisher exists and is valid
+            if (msp_fc_info_pub_ && msp_fc_info_pub_->get_subscription_count() > 0) {
+                auto msg = std_msgs::msg::String();
+                msg.data = info_str;
+                msp_fc_info_pub_->publish(msg);
+            }
+        }
     }
     
     // ========== MOTOR CONTROL CALLBACKS ==========
@@ -425,72 +480,81 @@ private:
         const auto stamp = now();
         
         // IMU
-        if (enable_imu_ && client_->request(MSP_RAW_IMU, {}, resp, 0.05) && resp.size() >= 18) {
-            int16_t* vals = (int16_t*)resp.data();
-            
-            auto msg = sensor_msgs::msg::Imu();
-            msg.header.stamp = stamp;
-            msg.header.frame_id = "imu_link";
-            
-            // Raw values published
-            msg.linear_acceleration.x = vals[0];
-            msg.linear_acceleration.y = vals[1];
-            msg.linear_acceleration.z = vals[2];
-            msg.angular_velocity.x = vals[3];
-            msg.angular_velocity.y = vals[4];
-            msg.angular_velocity.z = vals[5];
-            
-            msg.orientation_covariance[0] = -1;
-            
-            msp_imu_pub_->publish(msg);
+        if (enable_imu_) {
+            if (requestMSP(MSP_RAW_IMU, {}, resp, 0.05) && resp.size() >= 18) {
+                int16_t* vals = (int16_t*)resp.data();
+                
+                auto msg = sensor_msgs::msg::Imu();
+                msg.header.stamp = stamp;
+                msg.header.frame_id = "imu_link";
+                
+                msg.linear_acceleration.x = vals[0];
+                msg.linear_acceleration.y = vals[1];
+                msg.linear_acceleration.z = vals[2];
+                msg.angular_velocity.x = vals[3];
+                msg.angular_velocity.y = vals[4];
+                msg.angular_velocity.z = vals[5];
+                
+                msg.orientation_covariance[0] = -1;
+                
+                msp_imu_pub_->publish(msg);
+            }
         }
         
         // Attitude
-        if (enable_att_ && client_->request(MSP_ATTITUDE, {}, resp, 0.05) && resp.size() >= 6) {
-            int16_t roll_raw = *(int16_t*)&resp[0];
-            int16_t pitch_raw = *(int16_t*)&resp[2];
-            int16_t yaw_raw = *(int16_t*)&resp[4];
-            
-            auto msg = geometry_msgs::msg::Vector3Stamped();
-            msg.header.stamp = stamp;
-            msg.header.frame_id = "base_link";
-            msg.vector.x = roll_raw / 10.0;
-            msg.vector.y = pitch_raw / 10.0;
-            msg.vector.z = (double)yaw_raw;
-            
-            msp_attitude_pub_->publish(msg);
+        if (enable_att_) {
+            if (requestMSP(MSP_ATTITUDE, {}, resp, 0.05) && resp.size() >= 6) {
+                int16_t roll_raw = *(int16_t*)&resp[0];
+                int16_t pitch_raw = *(int16_t*)&resp[2];
+                int16_t yaw_raw = *(int16_t*)&resp[4];
+                
+                auto msg = geometry_msgs::msg::Vector3Stamped();
+                msg.header.stamp = stamp;
+                msg.header.frame_id = "base_link";
+                msg.vector.x = roll_raw / 10.0;
+                msg.vector.y = pitch_raw / 10.0;
+                msg.vector.z = (double)yaw_raw;
+                
+                msp_attitude_pub_->publish(msg);
+            }
         }
         
         // Altitude
-        if (enable_alt_ && client_->request(MSP_ALTITUDE, {}, resp, 0.05) && resp.size() >= 6) {
-            int32_t alt_cm = *(int32_t*)&resp[0];
-            int16_t vario_cms = *(int16_t*)&resp[4];
-            
-            auto alt_msg = std_msgs::msg::Float32();
-            alt_msg.data = alt_cm / 100.0f;
-            msp_altitude_pub_->publish(alt_msg);
-            
-            auto vario_msg = std_msgs::msg::Float32();
-            vario_msg.data = vario_cms / 100.0f;
-            msp_vario_pub_->publish(vario_msg);
+        if (enable_alt_) {
+            if (requestMSP(MSP_ALTITUDE, {}, resp, 0.05) && resp.size() >= 6) {
+                int32_t alt_cm = *(int32_t*)&resp[0];
+                int16_t vario_cms = *(int16_t*)&resp[4];
+                
+                auto alt_msg = std_msgs::msg::Float32();
+                alt_msg.data = alt_cm / 100.0f;
+                msp_altitude_pub_->publish(alt_msg);
+                
+                auto vario_msg = std_msgs::msg::Float32();
+                vario_msg.data = vario_cms / 100.0f;
+                msp_vario_pub_->publish(vario_msg);
+            }
         }
         
         // RC Channels
-        if (enable_rc_ && client_->request(MSP_RC, {}, resp, 0.05)) {
-            auto msg = std_msgs::msg::UInt16MultiArray();
-            for (size_t i = 0; i + 1 < resp.size(); i += 2) {
-                msg.data.push_back((uint16_t)(resp[i] | (resp[i + 1] << 8)));
+        if (enable_rc_) {
+            if (requestMSP(MSP_RC, {}, resp, 0.05)) {
+                auto msg = std_msgs::msg::UInt16MultiArray();
+                for (size_t i = 0; i + 1 < resp.size(); i += 2) {
+                    msg.data.push_back((uint16_t)(resp[i] | (resp[i + 1] << 8)));
+                }
+                msp_rc_pub_->publish(msg);
             }
-            msp_rc_pub_->publish(msg);
         }
         
         // Motors
-        if (enable_mot_ && client_->request(MSP_MOTOR, {}, resp, 0.05)) {
-            auto msg = std_msgs::msg::UInt16MultiArray();
-            for (size_t i = 0; i + 1 < resp.size(); i += 2) {
-                msg.data.push_back((uint16_t)(resp[i] | (resp[i + 1] << 8)));
+        if (enable_mot_) {
+            if (requestMSP(MSP_MOTOR, {}, resp, 0.05)) {
+                auto msg = std_msgs::msg::UInt16MultiArray();
+                for (size_t i = 0; i + 1 < resp.size(); i += 2) {
+                    msg.data.push_back((uint16_t)(resp[i] | (resp[i + 1] << 8)));
+                }
+                msp_motors_pub_->publish(msg);
             }
-            msp_motors_pub_->publish(msg);
         }
     }
     
@@ -500,7 +564,7 @@ private:
         const auto stamp = now();
         
         // Status
-        if (enable_status_ && client_->request(MSP_STATUS, {}, resp, 0.1)) {
+        if (enable_status_ && requestMSP(MSP_STATUS, {}, resp, 0.1)) {
             auto msg = diagnostic_msgs::msg::DiagnosticStatus();
             msg.name = "MSP Status";
             msg.hardware_id = port_;
@@ -531,7 +595,7 @@ private:
         }
         
         // Battery State
-        if (enable_bat_ && client_->request(MSP_BATTERY_STATE, {}, resp, 0.1)) {
+        if (enable_bat_ && requestMSP(MSP_BATTERY_STATE, {}, resp, 0.1)) {
             auto msg = sensor_msgs::msg::BatteryState();
             msg.header.stamp = stamp;
             
@@ -575,7 +639,7 @@ private:
         }
         
         // Temperature
-        if (enable_temp_ && client_->request(MSP_TEMPERATURE, {}, resp, 0.1)) {
+        if (enable_temp_ && requestMSP(MSP_TEMPERATURE, {}, resp, 0.1)) {
             if (resp.size() >= 2) {
                 int16_t temp_raw = *(int16_t*)&resp[0];
                 
@@ -594,7 +658,7 @@ private:
         const auto stamp = now();
         
         // GPS
-        if (enable_gps_ && client_->request(MSP_RAW_GPS, {}, resp, 0.2)) {
+        if (enable_gps_ && requestMSP(MSP_RAW_GPS, {}, resp, 0.2)) {
             if (resp.size() >= 16) {
                 size_t i = 0;
                 uint8_t fix = resp[i++];
@@ -639,7 +703,7 @@ private:
         }
         
         // ESC Telemetry
-        if (enable_esc_ && client_->request(MSP_ESC_SENSOR_DATA, {}, resp, 0.2)) {
+        if (enable_esc_ && requestMSP(MSP_ESC_SENSOR_DATA, {}, resp, 0.2)) {
             std::stringstream esc_data;
             size_t i = 0;
             int esc_num = 0;
@@ -659,7 +723,7 @@ private:
         }
         
         // Arming Disable Flags (MSP topic)
-        if (enable_arming_ && client_->request(MSP_ARMING_DISABLE_FLAGS, {}, resp, 0.2)) {
+        if (enable_arming_ && requestMSP(MSP_ARMING_DISABLE_FLAGS, {}, resp, 0.2)) {
             if (resp.size() >= 4) {
                 uint32_t flags = *(uint32_t*)&resp[0];
                 
@@ -670,7 +734,7 @@ private:
         }
         
         // Servos
-        if (enable_srv_ && client_->request(MSP_SERVO, {}, resp, 0.2)) {
+        if (enable_srv_ && requestMSP(MSP_SERVO, {}, resp, 0.2)) {
             auto msg = std_msgs::msg::UInt16MultiArray();
             for (size_t i = 0; i + 1 < resp.size(); i += 2) {
                 msg.data.push_back((uint16_t)(resp[i] | (resp[i + 1] << 8)));
@@ -682,7 +746,7 @@ private:
     // ========== MOTOR STATE PUBLISHING ==========
     void publishMotorState() {
         std::vector<uint8_t> response;
-        if (client_->request(MSP_MOTOR, {}, response, 0.05)) {
+        if (requestMSP(MSP_MOTOR, {}, response, 0.05)) {
             auto msg = std_msgs::msg::UInt16MultiArray();
             for (size_t i = 0; i + 1 < response.size(); i += 2) {
                 uint16_t value = response[i] | (response[i + 1] << 8);
@@ -743,7 +807,7 @@ private:
         }
         
         std::vector<uint8_t> response;
-        return client_->request(MSP_SET_MOTOR, payload, response, 0.1);
+        return requestMSP(MSP_SET_MOTOR, payload, response, 0.1);
     }
     
     void stopAllMotors() {
@@ -756,7 +820,7 @@ private:
     
     bool isArmed() {
         std::vector<uint8_t> response;
-        if (!client_->request(MSP_STATUS, {}, response, 0.1) || response.size() < 10) {
+        if (!requestMSP(MSP_STATUS, {}, response, 0.1) || response.size() < 10) {
             return false;
         }
         uint32_t flags = response[6] | (response[7] << 8) | 
@@ -766,7 +830,7 @@ private:
     
     uint32_t getArmingDisableFlags() {
         std::vector<uint8_t> response;
-        if (!client_->request(MSP_ARMING_DISABLE_FLAGS, {}, response, 0.1) || response.size() < 4) {
+        if (!requestMSP(MSP_ARMING_DISABLE_FLAGS, {}, response, 0.1) || response.size() < 4) {
             return 0xFFFFFFFF;
         }
         return response[0] | (response[1] << 8) | (response[2] << 16) | (response[3] << 24);
@@ -775,13 +839,13 @@ private:
     bool sendArmCommand() {
         std::vector<uint8_t> payload = {0x01};
         std::vector<uint8_t> response;
-        return client_->request(MSP_SET_ARMING, payload, response, 0.2);
+        return requestMSP(MSP_SET_ARMING, payload, response, 0.2);
     }
     
     bool sendDisarmCommand() {
         std::vector<uint8_t> payload = {0x00};
         std::vector<uint8_t> response;
-        return client_->request(MSP_SET_ARMING, payload, response, 0.2);
+        return requestMSP(MSP_SET_ARMING, payload, response, 0.2);
     }
     
     // ========== UTILITIES ==========
@@ -855,6 +919,7 @@ private:
     
     // Parameters
     std::string port_;
+    std::mutex msp_mutex_; 
     int baud_;
     bool debug_;
     int num_motors_;
