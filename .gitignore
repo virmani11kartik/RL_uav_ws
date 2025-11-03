@@ -1,28 +1,28 @@
+# ===== Build and install directories =====
 build/
 install/
 log/
 
-# Python virtual environments
-msp_venv/
+# ===== Python virtual environments =====
 venv/
 .env/
 *.env
+msp_venv/
+isaaclab_venv/
 
-# Python cache / build files
+# ===== Python cache and build files =====
 __pycache__/
 *.py[cod]
 *.egg-info/
-build/
 dist/
 
-# Editor / system files
+# ===== Editor and system files =====
 *.swp
 *.swo
 .DS_Store
 .idea/
 .vscode/
 
-msp_venv/
-
-# ignore venv
-msp_venv/
+# ===== Other caches / temporary files =====
+*.log
+*.tmp
