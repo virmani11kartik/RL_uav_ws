@@ -9,6 +9,7 @@ venv/
 *.env
 msp_venv/
 isaaclab_venv/
+ese651_project/
 
 # ===== Python cache and build files =====
 __pycache__/
