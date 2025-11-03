@@ -26,3 +26,4 @@ dist/
 # ===== Other caches / temporary files =====
 *.log
 *.tmp
+IsaacLab/
