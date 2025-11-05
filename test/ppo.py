@@ -147,67 +147,88 @@ class PPO:
             _,  # rnd_state_batch - not used anymore
         ) in generator:
             # TODO ----- START -----
+            # Detach targets (safety against gradient leaks)
+            advantage_estimates = advantage_estimates.detach()
+            discounted_returns  = discounted_returns.detach()
+            value_targets       = value_targets.detach()   # old values from rollout (baseline for value clipping)
+
+            # Per-minibatch advantage normalization (optional)
             if self.normalize_advantage_per_mini_batch:
                 adv_mean = advantage_estimates.mean()
-                adv_std = advantage_estimates.std().clamp_min(1e-8)
-                adavantage_batch = (advantage_estimates - adv_mean) / adv_std
+                adv_std  = advantage_estimates.std().clamp_min(1e-8)
+                advantages = (advantage_estimates - adv_mean) / adv_std
             else:
-                adavantage_batch = advantage_estimates
-            
-            # Setting Hidden States and Masks for Recurrent Policies
+                advantages = advantage_estimates
+
+            # Recurrent state/masks if needed
             if self.actor_critic.is_recurrent:
                 self.actor_critic.set_hidden_states(hidden_states)
                 self.actor_critic.set_masks(episode_masks)
-            
-            _ = self.actor_critic.act(observations)
-            log_probs = self.actor_critic.get_actions_log_prob(sampled_actions)
 
-            # Value Function
+            # Recompute current distribution for this obs batch (no sampling is used)
+            _ = self.actor_critic.act(observations)  # sets action_mean/action_std/entropy buffers for this batch
+
+            # Log-probs under current policy for the *sampled* actions from the rollout
+            log_probs = self.actor_critic.get_actions_log_prob(sampled_actions)
             values_pred = self.actor_critic.evaluate(critic_observations)
 
-            # PPO Surrogate Loss
+            # -------- PPO surrogate (actor) --------
             ratios = torch.exp(log_probs - prev_log_probs)
-            # Clipped Surrogate Objective
-            surr1 = ratios * adavantage_batch
-            surr2 = torch.clamp(ratios, 1.0 - self.clip_param, 1.0 + self.clip_param) * adavantage_batch
+            surr1 = ratios * advantages
+            surr2 = torch.clamp(ratios, 1.0 - self.clip_param, 1.0 + self.clip_param) * advantages
             policy_loss = -torch.mean(torch.min(surr1, surr2))
 
-            # Value Function Loss
+            # -------- Value loss (critic) --------
             if self.use_clipped_value_loss:
-                values_pred_clipped = prev_mean_actions.new_zeros(values_pred.size())
-                values_pred_clipped = values_pred + (values_pred - prev_mean_actions).clamp( -self.clip_param, self.clip_param)
-                value_loss_unclipped = (values_pred - discounted_returns).pow(2)
-                value_loss_clipped = (values_pred_clipped - discounted_returns).pow(2)
-                value_loss = 0.5 * torch.mean(torch.max(value_loss_unclipped, value_loss_clipped))
+                # Clip around the *old* value predictions from the rollout (value_targets)
+                value_clipped = value_targets + (values_pred - value_targets).clamp(-self.clip_param, self.clip_param)
+                v_loss_unclipped = (discounted_returns - values_pred).pow(2)
+                v_loss_clipped   = (discounted_returns - value_clipped).pow(2)
+                value_loss = 0.5 * torch.mean(torch.max(v_loss_unclipped, v_loss_clipped))
             else:
                 value_loss = 0.5 * torch.mean((discounted_returns - values_pred).pow(2))
 
-            # Entropy Bonus
-            entropy = self.actor_critic.entropy()
+            # -------- Entropy bonus --------
+            entropy = self.actor_critic.entropy
+            if entropy.dim() > 0:
+                entropy = entropy.mean()
 
-            # Total Loss
+            # -------- Total loss --------
             loss = policy_loss + self.value_loss_coef * value_loss - self.entropy_coef * entropy
 
-            # Gradient Descent Step
+            # -------- Backprop / Step --------
             self.optimizer.zero_grad(set_to_none=True)
             loss.backward()
             nn.utils.clip_grad_norm_(self.actor_critic.parameters(), self.max_grad_norm)
             self.optimizer.step()
 
-            # Logging
-            mean_value_loss += value_loss.detach()
-            mean_surrogate_loss += policy_loss.detach()
-            mean_entropy += entropy.detach()
+            # -------- Adaptive LR via analytic KL (diagonal Gaussian) --------
+            if self.schedule == "adaptive" and prev_mean_actions is not None and prev_action_stds is not None:
+                # Current μ, σ taken from the *act(observations)* call above (buffers)
+                mu_new    = self.actor_critic.action_mean.detach()[:observations.shape[0]]
+                sigma_new = self.actor_critic.action_std.detach()[:observations.shape[0]]
+                mu_old    = prev_mean_actions
+                sigma_old = prev_action_stds
 
-            # Adaptive LR using KL Divergence
-            if self.schedule == "adaptive":
-                approx_kl = torch.mean(prev_log_probs - log_probs).clamp_min(0.0).item()
-                if approx_kl > 1.5 * self.desired_kl:
+                # KL(old || new) per-dim, diagonal Gaussian
+                # sum over action dims, mean over batch
+                kl_per_dim = torch.log(sigma_new / (sigma_old + 1e-8) + 1e-8) \
+                            + (sigma_old.pow(2) + (mu_old - mu_new).pow(2)) / (2.0 * sigma_new.pow(2) + 1e-8) - 0.5
+                kl_mean = kl_per_dim.sum(dim=-1).mean().item()
+
+                # Simple LR adaptation around desired_kl
+                if kl_mean > 2.0 * self.desired_kl:
                     for pg in self.optimizer.param_groups:
-                        pg["lr"] = max(pg["lr"] * 0.5, 1e-8)
-                elif approx_kl < 0.5 * self.desired_kl:
+                        pg["lr"] = max(pg["lr"] / 1.5, 1e-5)
+                elif 0.0 < kl_mean < 0.5 * self.desired_kl:
                     for pg in self.optimizer.param_groups:
                         pg["lr"] = min(pg["lr"] * 1.5, self.learning_rate)
+
+            # ----- LOGGING -----
+            mean_value_loss     += value_loss.detach()
+            mean_surrogate_loss += policy_loss.detach()
+            mean_entropy        += entropy.detach()
+
             # TODO ----- END -----
 
 
