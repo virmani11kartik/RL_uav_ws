@@ -124,29 +124,40 @@ void CRSFBridge::sendBattery(float voltage, float current, uint32_t capacity, ui
 
 void CRSFBridge::packRcChannels(uint16_t* channels, uint8_t* payload) {
     // Pack 16 channels (11-bit each) into 22 bytes
-    // CRSF uses little-endian bit packing
+    // Based on working reference code - exact bit packing
     
-    uint32_t bits = 0;
-    uint8_t bitsAvailable = 0;
-    uint8_t byteIndex = 0;
-    
+    // Clamp all channels
+    uint16_t ch[16];
     for (int i = 0; i < 16; i++) {
-        // Clamp channel value
-        uint16_t ch = channels[i];
-        if (ch < CRSF_CHANNEL_VALUE_MIN) ch = CRSF_CHANNEL_VALUE_MIN;
-        if (ch > CRSF_CHANNEL_VALUE_MAX) ch = CRSF_CHANNEL_VALUE_MAX;
-        
-        // Add 11 bits to the bit buffer
-        bits |= ((uint32_t)ch << bitsAvailable);
-        bitsAvailable += 11;
-        
-        // Extract complete bytes
-        while (bitsAvailable >= 8) {
-            payload[byteIndex++] = bits & 0xFF;
-            bits >>= 8;
-            bitsAvailable -= 8;
-        }
+        ch[i] = channels[i];
+        if (ch[i] < CRSF_CHANNEL_VALUE_MIN) ch[i] = CRSF_CHANNEL_VALUE_MIN;
+        if (ch[i] > CRSF_CHANNEL_VALUE_MAX) ch[i] = CRSF_CHANNEL_VALUE_MAX;
     }
+    
+    // Pack according to CRSF specification (11 bits per channel)
+    payload[0]  = ch[0] & 0xFF;
+    payload[1]  = (ch[0] >> 8) | (uint8_t)((ch[1] & 0x07) << 3);
+    payload[2]  = (ch[1] >> 5) | (uint8_t)((ch[2] & 0x3F) << 6);
+    payload[3]  = ch[2] >> 2;
+    payload[4]  = (ch[2] >> 10) | (uint8_t)((ch[3] & 0x01FF) << 1);
+    payload[5]  = (ch[3] >> 7) | (uint8_t)((ch[4] & 0x0F) << 4);
+    payload[6]  = (ch[4] >> 4) | (uint8_t)((ch[5] & 0x01) << 7);
+    payload[7]  = ch[5] >> 1;
+    payload[8]  = (ch[5] >> 9) | (uint8_t)((ch[6] & 0x3) << 2);
+    payload[9]  = (ch[6] >> 6) | (uint8_t)((ch[7] & 0x1F) << 5);
+    payload[10] = ch[7] >> 3;
+    
+    payload[11] = ch[8] & 0xFF;
+    payload[12] = (ch[8] >> 8) | (uint8_t)((ch[9] & 0x07) << 3);
+    payload[13] = (ch[9] >> 5) | (uint8_t)((ch[10] & 0x3F) << 6);
+    payload[14] = ch[10] >> 2;
+    payload[15] = (ch[10] >> 10) | (uint8_t)((ch[11] & 0x01FF) << 1);
+    payload[16] = (ch[11] >> 7) | (uint8_t)((ch[12] & 0x0F) << 4);
+    payload[17] = (ch[12] >> 4) | (uint8_t)((ch[13] & 0x01) << 7);
+    payload[18] = ch[13] >> 1;
+    payload[19] = (ch[13] >> 9) | (uint8_t)((ch[14] & 0x3) << 2);
+    payload[20] = (ch[14] >> 6) | (uint8_t)((ch[15] & 0x1F) << 5);
+    payload[21] = ch[15] >> 3;
 }
 
 void CRSFBridge::sendFrame(uint8_t* frame, uint8_t len) {

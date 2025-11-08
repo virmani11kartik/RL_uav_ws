@@ -176,10 +176,10 @@ void loop() {
 // CRSF Bridge instance
 CRSFBridge crsfBridge;
 
-// Pin definitions for CRSF output (ESP32-C3 pins)
-// Note: Serial1 uses GPIO20/21 by default on ESP32-C3
-#define CRSF_TX_PIN 21  // GPIO21 - TX to FC RX
-#define CRSF_RX_PIN 20  // GPIO20 - RX from FC TX (optional for telemetry)
+// Pin definitions for CRSF output
+// Adjust these for your ESP32-C3 board
+#define CRSF_TX_PIN 21  // ESP32 TX -> FC RX
+#define CRSF_RX_PIN 20  // ESP32 RX -> FC TX (optional for telemetry)
 
 // Timing
 unsigned long lastTelemetrySendMs = 0;
@@ -190,7 +190,6 @@ unsigned long lastCrsfUpdateMs = 0;
 const unsigned long TELEMETRY_SEND_INTERVAL = 100;  // 10 Hz (100ms)
 const unsigned long STATS_INTERVAL = 1000;          // 1 Hz (every second, same as TX)
 const unsigned long ERROR_PRINT_INTERVAL = 1000;    // Max 1 error per second
-const unsigned long CRSF_UPDATE_INTERVAL = 4;       // 250 Hz (4ms) - CRSF update rate
 
 // Telemetry values (will be read from FC or sensors)
 // For now using simulated values - replace with actual sensor/FC readings
@@ -225,7 +224,7 @@ void setup() {
   
   Serial.println("[RX] Ready to receive!");
   Serial.println("[RX] Listening for any transmitter (broadcast mode)");
-  Serial.println("[RX] Telemetry: 10 Hz | Stats: 1 Hz | CRSF: 250 Hz");
+  Serial.println("[RX] Telemetry: 10 Hz | Stats: 1 Hz | CRSF: 50 Hz");
   Serial.println();
 }
 
@@ -238,24 +237,26 @@ void loop() {
   // Update CRSF bridge
   crsfBridge.update();
   
-  // Send RC channels to FC via CRSF at 250 Hz
-  if (now - lastCrsfUpdateMs >= CRSF_UPDATE_INTERVAL) {
+  // Send RC channels to FC via CRSF at 50 Hz (match reference code)
+  if (now - lastCrsfUpdateMs >= 20) {  // 50 Hz like the reference
     lastCrsfUpdateMs = now;
     
-    if (CustomProtocol_IsLinkActive()) {
-      // Get RC channels from protocol
-      uint16_t channels[16];
-      CustomProtocol_GetRcChannels(channels);
-      
-      // Send to flight controller via CRSF
-      crsfBridge.sendRcChannels(channels);
-    } else {
-      // Send failsafe values via CRSF
-      uint16_t failsafeChannels[16] = {
-        992, 992, 172, 992, 172, 172, 172, 172,  // Safe values
-        172, 172, 172, 172, 172, 172, 172, 172
-      };
-      crsfBridge.sendRcChannels(failsafeChannels);
+    if (crsfBridge.isActive()) {
+      if (CustomProtocol_IsLinkActive()) {
+        // Get RC channels from protocol
+        uint16_t channels[16];
+        CustomProtocol_GetRcChannels(channels);
+        
+        // Send to flight controller via CRSF
+        crsfBridge.sendRcChannels(channels);
+      } else {
+        // Send failsafe values via CRSF
+        uint16_t failsafeChannels[16] = {
+          992, 992, 172, 992, 172, 172, 172, 172,  // Safe values
+          172, 172, 172, 172, 172, 172, 172, 172
+        };
+        crsfBridge.sendRcChannels(failsafeChannels);
+      }
     }
   }
   
