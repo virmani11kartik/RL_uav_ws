@@ -26,6 +26,11 @@ uint16_t rcChannels[16] = {
   992, 992, 992, 992, 992, 992, 992, 992   // Channels 9-16
 };
 
+// Arming logic
+bool isArmed = false;
+unsigned long armingStartTime = 0;
+const unsigned long ARMING_DELAY = 3000;  // 3 seconds to arm
+
 // Bench test variables
 float benchTestPhase = 0.0;
 const float BENCH_TEST_SPEED = 0.5;  // Radians per second
@@ -60,6 +65,14 @@ void setup() {
   Serial.println("[TX] Ready to transmit!");
   Serial.println("[TX] Broadcasting to all receivers");
   Serial.println("[TX] RC commands: 50 Hz | Heartbeat: 2 Hz | Stats: 1 Hz");
+  
+  if (BENCH_TEST_MODE) {
+    Serial.println("\n⚠️  BENCH TEST MODE ACTIVE");
+    Serial.println("🔒 DISARMED - Throttle at minimum for 3 seconds");
+    Serial.println("🔓 Will auto-arm after 3 seconds, then throttle cycles");
+    armingStartTime = millis();
+  }
+  
   Serial.println();
 }
 
@@ -68,6 +81,12 @@ void loop() {
   
   // Update protocol (handles timeouts, etc.)
   CustomProtocol_Update();
+  
+  // Arming logic - arm after 3 seconds
+  if (!isArmed && (now - armingStartTime >= ARMING_DELAY)) {
+    isArmed = true;
+    Serial.println("\n🔓 ARMED - Bench test active!\n");
+  }
   
   // Send RC commands at 50 Hz
   if (now - lastRcSendMs >= RC_SEND_INTERVAL) {
@@ -88,7 +107,14 @@ void loop() {
       // Convert -1..1 to CRSF range (172-1811, center 992)
       rcChannels[0] = (uint16_t)(rollValue * 400.0 + 992.0);     // Roll: ±400 from center
       rcChannels[1] = (uint16_t)(pitchValue * 400.0 + 992.0);    // Pitch: ±400 from center
-      rcChannels[2] = (uint16_t)(throttleValue * 800.0 + 172.0); // Throttle: 172-972 (half range for safety)
+      
+      // SAFETY: Throttle stays at minimum until armed!
+      if (isArmed) {
+        rcChannels[2] = (uint16_t)(throttleValue * 800.0 + 172.0); // Throttle: 172-972 (half range for safety)
+      } else {
+        rcChannels[2] = 172;  // THROTTLE MINIMUM - SAFE TO ARM
+      }
+      
       rcChannels[3] = (uint16_t)(yawValue * 300.0 + 992.0);      // Yaw: ±300 from center
       
       // Aux channels - some switches cycling
