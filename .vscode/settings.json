@@ -118,7 +118,8 @@
         "__tree": "cpp",
         "queue": "cpp",
         "stack": "cpp",
-        "filesystem": "cpp"
+        "filesystem": "cpp",
+        "__bit_reference": "cpp"
     },
     "cmake.sourceDirectory": "/home/kartik/RL_uav_ws/src/uav_msp_bridge"
 }
