@@ -28,3 +28,6 @@ dist/
 *.log
 *.tmp
 IsaacLab/
+
+# ===== pio ini file =====
+uav_0_controller/platformio.ini
