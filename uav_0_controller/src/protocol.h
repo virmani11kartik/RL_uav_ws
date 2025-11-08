@@ -1,5 +1,4 @@
 // Custom Wireless Protocol
-// 自定义无线通信协议
 
 #ifndef CUSTOM_PROTOCOL_H
 #define CUSTOM_PROTOCOL_H
@@ -11,14 +10,14 @@
 #define CUSTOM_PROTO_MAX_PAYLOAD 128
 
 enum CustomPacketType {
-  PKT_RC_COMMAND    = 0x10,  // RC通道指令
-  PKT_DIRECT_CMD    = 0x11,  // 直接控制指令
-  PKT_TELEMETRY_REQ = 0x20,  // 遥测请求
-  PKT_TELEMETRY_DATA= 0x21,  // 遥测数据
-  PKT_CONFIG        = 0x30,  // 配置
-  PKT_ACK           = 0xF0,  // 确认
-  PKT_NACK          = 0xF1,  // 否定
-  PKT_HEARTBEAT     = 0xFF   // 心跳
+  PKT_RC_COMMAND    = 0x10,  // RC channel commands
+  PKT_DIRECT_CMD    = 0x11,  // Direct control commands
+  PKT_TELEMETRY_REQ = 0x20,  // Telemetry request
+  PKT_TELEMETRY_DATA= 0x21,  // Telemetry data
+  PKT_CONFIG        = 0x30,  // Configuration
+  PKT_ACK           = 0xF0,  // Acknowledgment
+  PKT_NACK          = 0xF1,  // Negative acknowledgment
+  PKT_HEARTBEAT     = 0xFF   // Heartbeat
 };
 
 typedef struct __attribute__((packed)) {
@@ -60,15 +59,20 @@ typedef struct {
   uint32_t timeoutErrors;
   uint32_t lastPacketMs;
   bool linkActive;
+  uint32_t sendFailures;
+  float packetLossPercent;
 } ProtocolStats;
 
-bool CustomProtocol_Init();
+bool CustomProtocol_Init(bool isTx = true, const uint8_t* peerMac = nullptr);
 void CustomProtocol_Update();
-bool CustomProtocol_ParsePacket(const uint8_t* data, size_t len);
+bool CustomProtocol_ParsePacket(const uint8_t* data, size_t len, const uint8_t* senderMac);
 bool CustomProtocol_SendPacket(CustomPacketType type, const uint8_t* payload, uint16_t payloadLen);
 bool CustomProtocol_SendRcCommand(uint16_t* channels);
 bool CustomProtocol_SendDirectCommand(float roll, float pitch, float yaw, float throttle);
+bool CustomProtocol_SendTelemetry(float voltage, float current, int16_t rssi, uint8_t linkQuality);
+bool CustomProtocol_SendHeartbeat();
 void CustomProtocol_GetRcChannels(uint16_t* channels);
+void CustomProtocol_GetTelemetry(TelemetryPayload* telemetry);
 bool CustomProtocol_IsLinkActive();
 void CustomProtocol_GetStats(ProtocolStats* stats);
 uint16_t CustomProtocol_CRC16(const uint8_t* data, size_t len);
