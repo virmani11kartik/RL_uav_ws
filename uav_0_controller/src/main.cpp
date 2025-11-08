@@ -7,8 +7,11 @@
 #define NUMPIXELS 1
 Adafruit_NeoPixel led(NUMPIXELS, RGB_PIN, NEO_GRB + NEO_KHZ800);
 
+//params
+static bool armed = true;
+
 // CRSF basics
-static const uint8_t CRSF_ADDR_FC = 0x80; // Flight Controller address
+static const uint8_t CRSF_ADDR_FC = 0xC8; // Flight Controller address
 static const uint8_t CRSF_TYPE_RC = 0x16; // RC Channel Data packet type (16 channels each 11 bits)
 
 HardwareSerial CRSF(1); // Use UART1 for CRSF communication
@@ -195,7 +198,6 @@ void loop(){
     tSend = now;
     send_rc_frame();
   }
-  static bool armed = true;
   setArm(armed);
   // if armed true blink green, else red
   if (armed){
