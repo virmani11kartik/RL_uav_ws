@@ -14,11 +14,12 @@
 // TRANSMITTER (TX) CODE
 // ============================================================
 
+// TX Configuration
+#define RC_SEND_FREQUENCY_HZ 100  // Options: 50, 100, 150, 250, 500 Hz
+#define BENCH_TEST_MODE true      // Set to false to use static values
+
 // Broadcast to all receivers (no pairing needed!)
 uint8_t receiverMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
-
-// Bench test mode - cycles through all axes
-#define BENCH_TEST_MODE true  // Set to false to use static values
 
 // RC channel values (CRSF format: 172-1811, center: 992)
 uint16_t rcChannels[16] = {
@@ -28,12 +29,16 @@ uint16_t rcChannels[16] = {
 
 // Arming logic
 bool isArmed = false;
-unsigned long armingStartTime = 0;
-const unsigned long ARMING_DELAY = 3000;  // 3 seconds to arm
+unsigned long auxSwitchTime = 0;  // Time when AUX last switched or will switch
+bool currentAuxState = false;  // false = LOW (disarmed), true = HIGH (armed)
 
 // Bench test variables
 float benchTestPhase = 0.0;
 const float BENCH_TEST_SPEED = 0.5;  // Radians per second
+
+// AUX cycling parameters
+const unsigned long AUX_STATE_DURATION = 10000;  // 10 seconds per state
+const unsigned long PRE_SWITCH_PAUSE = 1000;     // 1 second pause before switching
 
 // Timing
 unsigned long lastRcSendMs = 0;
@@ -41,7 +46,7 @@ unsigned long lastHeartbeatMs = 0;
 unsigned long lastStatsMs = 0;
 unsigned long lastTxErrorMs = 0;
 
-const unsigned long RC_SEND_INTERVAL = 20;      // 50 Hz (20ms) - ELRS-like speed
+const unsigned long RC_SEND_INTERVAL = 1000 / RC_SEND_FREQUENCY_HZ;  // Auto-calculated from frequency
 const unsigned long HEARTBEAT_INTERVAL = 500;   // 2 Hz (500ms)
 const unsigned long STATS_INTERVAL = 1000;      // 1 Hz (every second)
 const unsigned long ERROR_PRINT_INTERVAL = 1000; // Max 1 error per second
@@ -64,13 +69,17 @@ void setup() {
   
   Serial.println("[TX] Ready to transmit!");
   Serial.println("[TX] Broadcasting to all receivers");
-  Serial.println("[TX] RC commands: 50 Hz | Heartbeat: 2 Hz | Stats: 1 Hz");
+  Serial.printf("[TX] RC commands: %d Hz | Heartbeat: 2 Hz | Stats: 1 Hz\n", RC_SEND_FREQUENCY_HZ);
   
   if (BENCH_TEST_MODE) {
-    Serial.println("\n⚠️  BENCH TEST MODE ACTIVE");
-    Serial.println("🔒 DISARMED - Throttle at minimum for 3 seconds");
-    Serial.println("🔓 Will auto-arm after 3 seconds, then throttle cycles");
-    armingStartTime = millis();
+    Serial.println("\n*** BENCH TEST MODE ACTIVE ***");
+    Serial.println("AUX1 cycles every 10 seconds (disarmed <-> armed)");
+    Serial.println("Throttle behavior:");
+    Serial.println("   - AUX LOW (disarmed): constant 25% throttle");
+    Serial.println("   - AUX HIGH (armed): ramps 0% -> 50% over 10 seconds");
+    Serial.println("   - 1s before switch: throttle -> 0%, sticks center");
+    Serial.println("Starting DISARMED (AUX1 LOW, 25% throttle)");
+    auxSwitchTime = millis();
   }
   
   Serial.println();
@@ -82,44 +91,88 @@ void loop() {
   // Update protocol (handles timeouts, etc.)
   CustomProtocol_Update();
   
-  // Arming logic - arm after 3 seconds
-  if (!isArmed && (now - armingStartTime >= ARMING_DELAY)) {
-    isArmed = true;
-    Serial.println("\n🔓 ARMED - Bench test active!\n");
+  // Handle AUX1 state cycling in bench test mode
+  if (BENCH_TEST_MODE) {
+    unsigned long timeSinceSwitch = now - auxSwitchTime;
+    
+    // Time to switch AUX state (every 10 seconds)
+    if (timeSinceSwitch >= AUX_STATE_DURATION) {
+      currentAuxState = !currentAuxState;  // Toggle AUX state
+      auxSwitchTime = now;
+      
+      if (currentAuxState) {
+        Serial.println("\nAUX1 -> HIGH (ARMED)\n");
+      } else {
+        Serial.println("\nAUX1 -> LOW (DISARMED)\n");
+      }
+    }
   }
   
-  // Send RC commands at 50 Hz
+  // Send RC commands at configured frequency
   if (now - lastRcSendMs >= RC_SEND_INTERVAL) {
     lastRcSendMs = now;
     
     if (BENCH_TEST_MODE) {
-      // Bench test mode - cycle through all axes for testing
-      float dt = RC_SEND_INTERVAL / 1000.0;  // Time delta in seconds
-      benchTestPhase += BENCH_TEST_SPEED * dt;
-      if (benchTestPhase > 6.28318) benchTestPhase -= 6.28318;  // Wrap at 2*PI
+      // Check if we're in transition period (1 second before AUX switch)
+      unsigned long timeSinceSwitch = now - auxSwitchTime;
+      bool inTransition = (timeSinceSwitch >= (AUX_STATE_DURATION - PRE_SWITCH_PAUSE));
+      
+      if (!inTransition) {
+        // Normal operation - update phase and movement
+        float dt = RC_SEND_INTERVAL / 1000.0;  // Time delta in seconds
+        benchTestPhase += BENCH_TEST_SPEED * dt;
+        if (benchTestPhase > 6.28318) benchTestPhase -= 6.28318;  // Wrap at 2*PI
+      }
+      // else: In transition - pause movement (don't update benchTestPhase)
       
       // Calculate smooth sine waves for each axis
       float rollValue = sin(benchTestPhase);                    // Roll oscillates
       float pitchValue = sin(benchTestPhase + 1.57);            // Pitch 90° out of phase
       float yawValue = sin(benchTestPhase * 0.5);               // Yaw slower
-      float throttleValue = (sin(benchTestPhase * 0.3) + 1.0) / 2.0;  // Throttle 0-1, slower
+      
+      // During transition: force everything to center/minimum
+      if (inTransition) {
+        rollValue = 0.0;
+        pitchValue = 0.0;
+        yawValue = 0.0;
+      }
       
       // Convert -1..1 to CRSF range (172-1811, center 992)
       rcChannels[0] = (uint16_t)(rollValue * 400.0 + 992.0);     // Roll: ±400 from center
       rcChannels[1] = (uint16_t)(pitchValue * 400.0 + 992.0);    // Pitch: ±400 from center
-      
-      // SAFETY: Throttle stays at minimum until armed!
-      if (isArmed) {
-        rcChannels[2] = (uint16_t)(throttleValue * 800.0 + 172.0); // Throttle: 172-972 (half range for safety)
-      } else {
-        rcChannels[2] = 172;  // THROTTLE MINIMUM - SAFE TO ARM
-      }
-      
       rcChannels[3] = (uint16_t)(yawValue * 300.0 + 992.0);      // Yaw: ±300 from center
       
-      // Aux channels - some switches cycling
-      rcChannels[4] = (benchTestPhase < 3.14) ? 172 : 1811;  // AUX1: Switch
-      rcChannels[5] = 992;                                    // AUX2: Center
+      // AUX1 controls arming (channel 4)
+      rcChannels[4] = currentAuxState ? 1811 : 172;  // HIGH = armed, LOW = disarmed
+      
+      // Update isArmed based on AUX1 position
+      isArmed = currentAuxState;
+      
+      // Throttle logic:
+      // - During transition (1s before switch): 0% throttle
+      // - AUX LOW (disarmed): constant 25% throttle
+      // - AUX HIGH (armed): ramp from 0% to 50% over 10 seconds
+      float throttlePercent = 0.0;
+      const float CRSF_RANGE = 1811.0 - 172.0;  // Total CRSF range
+      
+      if (inTransition) {
+        // Transition: 0% throttle (minimum)
+        throttlePercent = 0.0;
+      } else if (!isArmed) {
+        // Disarmed (AUX LOW): constant 25% throttle
+        throttlePercent = 0.25;
+      } else {
+        // Armed (AUX HIGH): linear ramp 0% to 50% over 10 seconds
+        float timeInArmedState = timeSinceSwitch / 1000.0;  // Convert to seconds
+        float maxTime = (AUX_STATE_DURATION - PRE_SWITCH_PAUSE) / 1000.0;  // 9 seconds
+        throttlePercent = (timeInArmedState / maxTime) * 0.5;  // 0% to 50%
+        if (throttlePercent > 0.5) throttlePercent = 0.5;  // Cap at 50%
+      }
+      
+      // Convert throttle percentage to CRSF value
+      rcChannels[2] = (uint16_t)(172.0 + throttlePercent * CRSF_RANGE);
+      
+      rcChannels[5] = 992;  // AUX2: Center
       
     } else {
       // Manual mode - static values (for real joystick input)
@@ -183,6 +236,11 @@ void loop() {
                     telemetry.rssi, telemetry.linkQuality);
     }
     
+    // Display current RC channels being sent
+    Serial.printf("TX Sending RC: R:%d P:%d T:%d Y:%d | AUX1:%d AUX2:%d\n",
+                  rcChannels[0], rcChannels[1], rcChannels[2], rcChannels[3],
+                  rcChannels[4], rcChannels[5]);
+    
     Serial.println();
   }
   
@@ -202,10 +260,16 @@ void loop() {
 // CRSF Bridge instance
 CRSFBridge crsfBridge;
 
-// Pin definitions for CRSF output
-// Adjust these for your ESP32-C3 board
+// RX Configuration
+// Pin definitions for CRSF output (adjust for your ESP32 board)
 #define CRSF_TX_PIN 21  // ESP32 TX -> FC RX
 #define CRSF_RX_PIN 20  // ESP32 RX -> FC TX (optional for telemetry)
+
+// CRSF Output Configuration
+// NOTE: M5Stack C3 - Serial1 conflicts with USB Serial debug output!
+// Use false for debugging, true for production (flying)
+#define ENABLE_CRSF_OUTPUT true  // true = CRSF enabled (no debug), false = CRSF disabled (full debug)
+#define CRSF_OUTPUT_FREQUENCY_HZ 100  // Options: 50, 100, 150, 250, 500 Hz (should match TX)
 
 // Timing
 unsigned long lastTelemetrySendMs = 0;
@@ -213,6 +277,7 @@ unsigned long lastStatsMs = 0;
 unsigned long lastRxErrorMs = 0;
 unsigned long lastCrsfUpdateMs = 0;
 
+const unsigned long CRSF_OUTPUT_INTERVAL = 1000 / CRSF_OUTPUT_FREQUENCY_HZ;  // Auto-calculated from frequency
 const unsigned long TELEMETRY_SEND_INTERVAL = 100;  // 10 Hz (100ms)
 const unsigned long STATS_INTERVAL = 1000;          // 1 Hz (every second, same as TX)
 const unsigned long ERROR_PRINT_INTERVAL = 1000;    // Max 1 error per second
@@ -228,30 +293,45 @@ void setup() {
   Serial.begin(115200);
   delay(1000);
   
+#if !ENABLE_CRSF_OUTPUT
+  // Debug mode - print startup messages
   Serial.println("\n\n=================================");
   Serial.println("Custom Protocol Receiver (RX)");
-  Serial.println("=================================\n");
+  Serial.println("=================================");
+  Serial.println("DEBUG MODE - CRSF Output Disabled\n");
+#endif
   
   // Initialize protocol (RX mode, will auto-pair with any TX)
   if (!CustomProtocol_Init(false, nullptr)) {
+#if !ENABLE_CRSF_OUTPUT
     Serial.println("[RX] Protocol init failed!");
+#endif
     while (1) {
       delay(1000);
     }
   }
   
-  // Initialize CRSF bridge to output to FC
-  if (crsfBridge.init(&Serial1, CRSF_TX_PIN, CRSF_RX_PIN)) {
-    Serial.println("[RX] CRSF bridge initialized");
-    Serial.printf("[RX] Outputting CRSF to FC on pin %d\n", CRSF_TX_PIN);
-  } else {
-    Serial.println("[RX] WARNING: CRSF bridge init failed!");
-  }
+#if !ENABLE_CRSF_OUTPUT
+  Serial.println("[RX] Protocol initialized successfully");
+  Serial.flush();
+#endif
+  delay(200);
   
+#if ENABLE_CRSF_OUTPUT
+  // Production mode - Initialize CRSF bridge to output to FC
+  crsfBridge.init(&Serial1, CRSF_TX_PIN, CRSF_RX_PIN);
+  delay(100);
+#else
+  // Debug mode
+  Serial.println("[RX] CRSF output DISABLED - Debug mode active");
   Serial.println("[RX] Ready to receive!");
   Serial.println("[RX] Listening for any transmitter (broadcast mode)");
-  Serial.println("[RX] Telemetry: 10 Hz | Stats: 1 Hz | CRSF: 50 Hz");
+  Serial.printf("[RX] Test frequency: %d Hz\n", CRSF_OUTPUT_FREQUENCY_HZ);
   Serial.println();
+  Serial.flush();
+#endif
+  
+  delay(100);
 }
 
 void loop() {
@@ -260,11 +340,12 @@ void loop() {
   // Update protocol (handles timeouts, parsing, etc.)
   CustomProtocol_Update();
   
+#if ENABLE_CRSF_OUTPUT
   // Update CRSF bridge
   crsfBridge.update();
   
-  // Send RC channels to FC via CRSF at 50 Hz (match reference code)
-  if (now - lastCrsfUpdateMs >= 20) {  // 50 Hz like the reference
+  // Send RC channels to FC via CRSF at configured frequency
+  if (now - lastCrsfUpdateMs >= CRSF_OUTPUT_INTERVAL) {
     lastCrsfUpdateMs = now;
     
     if (crsfBridge.isActive()) {
@@ -285,6 +366,7 @@ void loop() {
       }
     }
   }
+#endif
   
   // Send telemetry at 10 Hz (only if link is active)
   if (CustomProtocol_IsLinkActive() && (now - lastTelemetrySendMs >= TELEMETRY_SEND_INTERVAL)) {
@@ -300,17 +382,20 @@ void loop() {
     CustomProtocol_GetStats(&stats);
     linkQuality = (stats.linkActive) ? 100 : 0;
     
-    // Send telemetry (errors are rate-limited to prevent spam)
+    // Send telemetry
     if (!CustomProtocol_SendTelemetry(batteryVoltage, batteryCurrent, rssi, linkQuality)) {
-      // Rate-limit error messages
+#if !ENABLE_CRSF_OUTPUT
+      // Debug mode - print errors
       if (now - lastRxErrorMs >= ERROR_PRINT_INTERVAL) {
-        Serial.println("[RX] Failed to send telemetry (rate-limited errors)");
+        Serial.println("[RX] Failed to send telemetry");
         lastRxErrorMs = now;
       }
+#endif
     }
   }
   
-  // Print statistics every second
+#if !ENABLE_CRSF_OUTPUT
+  // Debug mode - Print statistics every second
   if (now - lastStatsMs >= STATS_INTERVAL) {
     lastStatsMs = now;
     
@@ -323,22 +408,27 @@ void loop() {
                   stats.packetLossPercent, stats.crcErrors);
     Serial.printf("Link: %s | Last RX: %lu ms ago\n", 
                   stats.linkActive ? "ACTIVE" : "FAILSAFE", stats.lastPacketMs);
-    Serial.printf("CRSF: %lu frames sent to FC\n", crsfBridge.getFramesSent());
     
     // Display RC channels if link is active
     if (stats.linkActive) {
       uint16_t channels[16];
       CustomProtocol_GetRcChannels(channels);
       
-      Serial.printf("RC: R:%d P:%d T:%d Y:%d | AUX1:%d AUX2:%d\n",
+      Serial.printf("RX Received RC: R:%d P:%d T:%d Y:%d | AUX1:%d AUX2:%d\n",
                     channels[0], channels[1], channels[2], channels[3],
                     channels[4], channels[5]);
+      Serial.printf("All 16 channels: %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d %d\n",
+                    channels[0], channels[1], channels[2], channels[3],
+                    channels[4], channels[5], channels[6], channels[7],
+                    channels[8], channels[9], channels[10], channels[11],
+                    channels[12], channels[13], channels[14], channels[15]);
     } else {
-      Serial.println("⚠️  FAILSAFE MODE - No signal");
+      Serial.println("*** FAILSAFE MODE - No signal ***");
     }
     
     Serial.println();
   }
+#endif
   
   // Small delay to prevent watchdog issues
   delay(1);

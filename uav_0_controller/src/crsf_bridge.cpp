@@ -14,27 +14,32 @@ bool CRSFBridge::init(HardwareSerial* ser, int8_t txPin, int8_t rxPin) {
     serial = ser;
     
     Serial.println("[CRSF] Initializing...");
+    Serial.flush();
+    delay(50);
     
     // Make sure we're not using Serial (debug port)
     if (serial == &Serial) {
         Serial.println("[CRSF] ERROR: Cannot use Serial for CRSF (conflicts with debug output)");
+        Serial.flush();
         return false;
     }
     
-    // Configure UART
+    // Configure UART with explicit pins (ESP32-C3 needs this)
     if (txPin >= 0 && rxPin >= 0) {
         serial->begin(CRSF_BAUDRATE, SERIAL_8N1, rxPin, txPin);
     } else {
         serial->begin(CRSF_BAUDRATE);
     }
     
-    delay(100);
+    delay(200);  // Give Serial1 time to initialize
     
     active = true;
     Serial.printf("[CRSF] Initialized on UART at %d baud\n", CRSF_BAUDRATE);
     
     if (txPin >= 0) Serial.printf("[CRSF] TX Pin: GPIO%d\n", txPin);
     if (rxPin >= 0) Serial.printf("[CRSF] RX Pin: GPIO%d\n", rxPin);
+    Serial.flush();
+    delay(50);
     
     return true;
 }

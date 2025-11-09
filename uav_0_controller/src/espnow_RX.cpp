@@ -27,6 +27,8 @@ ESPNowRX::~ESPNowRX() {
 
 bool ESPNowRX::init() {
     Serial.println("[ESP-NOW RX] Initializing...");
+    Serial.flush();  // Ensure message is sent before WiFi changes
+    delay(100);
     
     // Only deinit if already initialized (prevent crash)
     if (initialized) {
@@ -37,24 +39,27 @@ bool ESPNowRX::init() {
     // Set WiFi mode to station
     WiFi.mode(WIFI_STA);
     WiFi.disconnect();
-    delay(100);  // Give WiFi time to stabilize
+    delay(200);  // Give WiFi time to stabilize
     
     // Disable WiFi power saving for better stability
     esp_wifi_set_ps(WIFI_PS_NONE);
     
     // Set WiFi to channel 1 for better stability
     esp_wifi_set_channel(1, WIFI_SECOND_CHAN_NONE);
+    delay(100);
     
     // Print MAC address
     uint8_t mac[6];
     WiFi.macAddress(mac);
     Serial.printf("[ESP-NOW RX] MAC Address: %02X:%02X:%02X:%02X:%02X:%02X\n",
                   mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+    Serial.flush();
     
     // Initialize ESP-NOW
     esp_err_t result = esp_now_init();
     if (result != ESP_OK) {
         Serial.printf("[ESP-NOW RX] Init failed: %d\n", result);
+        Serial.flush();
         return false;
     }
     
@@ -63,8 +68,10 @@ bool ESPNowRX::init() {
     esp_now_register_send_cb(onDataSentStatic);
     
     initialized = true;
+    delay(50);
     Serial.println("[ESP-NOW RX] Initialized successfully on Channel 1");
     Serial.println("[ESP-NOW RX] Ready to receive data...");
+    Serial.flush();
     
     return true;
 }
