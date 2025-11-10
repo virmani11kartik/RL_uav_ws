@@ -28,7 +28,7 @@ class PPO:
         gamma=0.9,
         lam=0.95,
         value_loss_coef=1.0,
-        entropy_coef=0.0,
+        entropy_coef=0.01,
         learning_rate=1e-4,
         max_grad_norm=1.0,
         use_clipped_value_loss=True,
@@ -206,7 +206,8 @@ class PPO:
 
             mean_value_loss     += value_loss.item()
             mean_surrogate_loss += surrogate_loss.item()
-            mean_entropy        += torch.mean(entropy_batch).item()         
+            mean_entropy        += torch.mean(entropy_batch).item()
+                    
             # TODO ----- END -----
 
 
