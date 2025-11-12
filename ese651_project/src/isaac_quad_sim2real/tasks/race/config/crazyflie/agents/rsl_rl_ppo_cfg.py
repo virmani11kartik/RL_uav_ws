@@ -10,7 +10,7 @@ from .rl_cfg import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgo
 
 @configclass
 class QuadcopterPPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 48#24
+    num_steps_per_env = 24
     max_iterations = 2000#200
     save_interval = 50
     experiment_name = "quadcopter_direct"
