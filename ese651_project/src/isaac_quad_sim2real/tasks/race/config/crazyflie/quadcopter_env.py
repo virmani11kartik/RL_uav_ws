@@ -262,6 +262,10 @@ class QuadcopterEnv(DirectRLEnv):
         self._previous_omega_meas = torch.zeros(self.num_envs, 3, device=self.device)
         self._previous_omega_err = torch.zeros(self.num_envs, 3, device=self.device)
 
+        # In __init__ of QuadcopterEnv
+        self._last_s_along_track = torch.zeros(self.num_envs, device=self.device)
+        self._last_distance_to_prev = torch.zeros(self.num_envs, device=self.device)
+
         self._desired_pos_w = torch.zeros(self.num_envs, 3, device=self.device)
 
         self._last_distance_to_goal = torch.zeros(self.num_envs, device=self.device)
