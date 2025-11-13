@@ -106,7 +106,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_dir = os.path.join(log_root_path, log_dir)
 
     # TODO ----- START ----- Define rewards scales
-    # reward scales
+    #reward scales
     # progress_goal_reward_scale = 50.0
     # crash_reward = -1.0
     # death_cost = -10.0
@@ -118,8 +118,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # }
 
     progress_gate_reward_scale = 2.0          # Reward for getting closer to gate
-    gate_pass_reward_scale = 3.0 #5.0            # Large bonus for passing through gate
-    velocity_forward_reward_scale = 1.5#1.0       # Encourage fast forward motion
+    gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
+    velocity_forward_reward_scale = 2.0#1.0       # Encourage fast forward motion
 
     # Orientation and navigation (medium weight)
     heading_alignment_reward_scale = 0.5#0.3      # Reward for pointing toward gate
@@ -133,6 +133,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     crash_reward_scale = 5.0                  # Penalty for crashing
     death_cost = -50.0                        # Large penalty for episode termination
 
+    backward_reward_scale = 0.2#1.5
+
     # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
@@ -144,7 +146,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'height_reward_scale': height_reward_scale,
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost,
+        'backward_reward_scale': backward_reward_scale,
     }
+
     # TODO ----- END -----
 
     env_cfg.is_train = True

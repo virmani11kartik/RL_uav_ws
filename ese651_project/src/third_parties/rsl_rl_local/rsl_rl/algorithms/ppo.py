@@ -25,16 +25,16 @@ class PPO:
         num_learning_epochs=5,
         num_mini_batches=4,
         clip_param=0.2,
-        gamma=0.9,
+        gamma=0.99,#0.9
         lam=0.95,
         value_loss_coef=1.0,
         entropy_coef=0.005,
-        learning_rate=1e-4,
+        learning_rate=3e-4,#1e-4,
         max_grad_norm=1.0,
         use_clipped_value_loss=True,
         schedule="adaptive",
         desired_kl=0.01,
-        device="cpu",
+        device="cuda",
         normalize_advantage_per_mini_batch=True
     ):
         self.device = device

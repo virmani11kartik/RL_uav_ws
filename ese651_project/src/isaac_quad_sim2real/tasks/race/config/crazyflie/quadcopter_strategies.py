@@ -113,13 +113,26 @@ class DefaultQuadcopterStrategy:
 
         # ==================== PROGRESS METRICS ====================
         # Distance to current gate
+        # distance_to_gate = torch.linalg.norm(
+        #     self.env._desired_pos_w - self.env._robot.data.root_link_pos_w, dim=1
+        # )
+        ################## NEW PROGRESS GATE STARTEGY #######################
         distance_to_gate = torch.linalg.norm(
-            self.env._desired_pos_w - self.env._robot.data.root_link_pos_w, dim=1
+            self.env._desired_pos_w[:, :2] - self.env._robot.data.root_link_pos_w[:, :2], dim=1
         )
+        # Previous distance (stored in env)
+        prev_distance_to_gate = self.env._last_distance_to_goal
+        # Progress = how much closer you got since last step
+        progress_raw = prev_distance_to_gate - distance_to_gate 
+        # Update buffer for next step
+        self.env._last_distance_to_goal = distance_to_gate.detach()
+        # Clamp to avoid huge spikes
+        progress_to_gate = torch.clamp(progress_raw, -1.0, 1.0)
+        #####################################################################
         
         # Progress reward: inversely proportional to distance
         # Use exponential decay to give stronger reward when close
-        progress_to_gate = torch.exp(-distance_to_gate / 2.0)
+        # progress_to_gate = torch.exp(-distance_to_gate / 2.0)
         
         # Velocity towards gate (encourage forward motion)
         drone_to_gate_vec = self.env._desired_pos_w - self.env._robot.data.root_link_pos_w
@@ -128,7 +141,13 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 3.0)  # Encourage speeds up to 3 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 3 m/s
+
+        # Extra penalty for moving backwards relative to the current gate
+        # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
+        # backward_penalty = backward_speed  
+        backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
+
         
         # Gate passing bonus (large reward for successfully passing through)
         gate_pass_bonus = gate_passed.float() * 10.0
@@ -144,7 +163,7 @@ class DefaultQuadcopterStrategy:
         
         # Alignment between drone heading and direction to gate
         heading_alignment = torch.sum(drone_forward_world * drone_to_gate_vec_normalized, dim=1)
-        heading_reward = torch.clamp(heading_alignment, 0.0, 1.0)
+        heading_reward = torch.clamp(heading_alignment, -1.5, 1.0)
         
         # ==================== STABILITY AND CONTROL ====================
         # Penalize excessive roll and pitch (encourage stable flight)
@@ -188,6 +207,7 @@ class DefaultQuadcopterStrategy:
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 "height": -height_penalty * self.env.rew['height_reward_scale'],
+                "backward": backward_motion * self.env.rew['backward_reward_scale']
             }
             
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -397,6 +417,8 @@ class DefaultQuadcopterStrategy:
             
             # Point drone towards the gate with some random yaw offset
             initial_yaw = torch.atan2(y0_wp - initial_y, x0_wp - initial_x)
+            # initial_yaw = self.env._waypoints[waypoint_indices, -1]
+
             yaw_noise = torch.empty(n_reset, device=self.device).uniform_(-0.3, 0.3)  # ±17 degrees
             
             quat = quat_from_euler_xyz(
@@ -455,8 +477,14 @@ class DefaultQuadcopterStrategy:
         self.env._desired_pos_w[env_ids, :2] = self.env._waypoints[waypoint_indices, :2].clone()
         self.env._desired_pos_w[env_ids, 2] = self.env._waypoints[waypoint_indices, 2].clone()
 
+        # self.env._last_distance_to_goal[env_ids] = torch.linalg.norm(
+        #     self.env._desired_pos_w[env_ids, :2] - self.env._robot.data.root_link_pos_w[env_ids, :2], dim=1
+        # )
+
+        initial_pos_xy = default_root_state[:, :2]
+
         self.env._last_distance_to_goal[env_ids] = torch.linalg.norm(
-            self.env._desired_pos_w[env_ids, :2] - self.env._robot.data.root_link_pos_w[env_ids, :2], dim=1
+            self.env._desired_pos_w[env_ids, :2] - initial_pos_xy, dim=1
         )
         self.env._n_gates_passed[env_ids] = 0
 

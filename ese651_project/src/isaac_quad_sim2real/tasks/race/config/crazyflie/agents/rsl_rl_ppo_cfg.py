@@ -10,7 +10,7 @@ from .rl_cfg import RslRlOnPolicyRunnerCfg, RslRlPpoActorCriticCfg, RslRlPpoAlgo
 
 @configclass
 class QuadcopterPPORunnerCfg(RslRlOnPolicyRunnerCfg):
-    num_steps_per_env = 24
+    num_steps_per_env = 48
     max_iterations = 2000#200
     save_interval = 50
     experiment_name = "quadcopter_direct"
@@ -32,7 +32,7 @@ class QuadcopterPPORunnerCfg(RslRlOnPolicyRunnerCfg):
         num_mini_batches=4,
         learning_rate=5.0e-4,
         schedule="adaptive",
-        gamma=0.99,
+        gamma=0.998,
         lam=0.95,
         desired_kl=0.01,
         max_grad_norm=1.0,
