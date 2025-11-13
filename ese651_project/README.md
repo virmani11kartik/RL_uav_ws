@@ -7,7 +7,7 @@ This project repository contains the code for the drone racing environment, trai
 * Enter your **home** directory, then git clone the project repository. It is critical that the project repo and the Isaac Lab directory are at the same level.
 
 ```bash
-git clone git@github.com:vineetpasumarti/ese651_project.git
+git clone git@github.com:virmani11kartik/RL_uav_ws.git
 ```
 
 ## Training
