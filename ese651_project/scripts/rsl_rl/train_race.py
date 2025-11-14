@@ -123,6 +123,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     progress_gate_reward_scale = 3.0              # Reward for getting closer to gate
     velocity_forward_reward_scale = 2.0           # Velocity towards gate
     gate_pass_reward_scale = 15.0                 # Large bonus for passing gate correctly
+    gate_centering_reward_scale = 1.5             # NEW: Reward for staying centered in gate
 
     # Orientation and alignment
     heading_alignment_reward_scale = 1.5          # Pointing toward gate
@@ -130,18 +131,19 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # Stability and control penalties
     tilt_reward_scale = 0.3                       # Penalize excessive roll/pitch
-    ang_vel_reward_scale = 0.1    #0.5 make       # Penalize high angular velocities
+    ang_vel_reward_scale = 0.1                    # Penalize high angular velocities
     height_reward_scale = 0.4                     # Penalize height deviations
 
     # Safety penalties
-    crash_reward_scale = 5.0                      # Penalty for crashing
-    death_cost = -40.0                            # Episode termination penalty
+    crash_reward_scale = 8.0                      # Penalty for crashing
+    death_cost = -55.0                            # Episode termination penalty
 
     # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
         'velocity_forward_reward_scale': velocity_forward_reward_scale,
         'gate_pass_reward_scale': gate_pass_reward_scale,
+        'gate_centering_reward_scale': gate_centering_reward_scale,  # NEW KEY
         'heading_alignment_reward_scale': heading_alignment_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
