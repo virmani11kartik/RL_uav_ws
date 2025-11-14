@@ -93,6 +93,9 @@ class DefaultQuadcopterStrategy:
         
         # Update previous x position for next timestep
         self.env._prev_x_drone_wrt_gate = self.env._pose_drone_wrt_gate[:, 0].clone()
+
+        # Gate passing bonus (large reward for successfully passing through)
+        gate_pass_bonus = gate_passed.float() * 10.0
         
         # Update waypoint indices for environments that passed gates
         ids_gate_passed = torch.where(gate_passed)[0]
@@ -133,7 +136,7 @@ class DefaultQuadcopterStrategy:
         # Progress reward: inversely proportional to distance
         # Use exponential decay to give stronger reward when close
         # progress_to_gate = torch.exp(-distance_to_gate / 2.0)
-        
+        ################## VELOCITY METRIC #######################
         # Velocity towards gate (encourage forward motion)
         drone_to_gate_vec = self.env._desired_pos_w - self.env._robot.data.root_link_pos_w
         drone_to_gate_vec_normalized = drone_to_gate_vec / (distance_to_gate.unsqueeze(1) + 1e-6)
@@ -147,15 +150,11 @@ class DefaultQuadcopterStrategy:
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
         # backward_penalty = backward_speed  
         backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
-
-        
-        # Gate passing bonus (large reward for successfully passing through)
-        gate_pass_bonus = gate_passed.float() * 10.0
         
         # ==================== ORIENTATION ALIGNMENT ====================
         # Reward for pointing towards the gate
         drone_forward_w = torch.zeros((self.num_envs, 3), device=self.device)
-        drone_forward_w[:, 0] = 1.0  # Forward is +X in body frame
+        drone_forward_w[:, 0] = -1.0  # Forward is +X in body frame
         
         # Rotate forward vector to world frame
         rot_mat = matrix_from_quat(self.env._robot.data.root_quat_w)
