@@ -138,6 +138,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     crash_reward_scale = 8.0                      # Penalty for crashing
     death_cost = -55.0                            # Episode termination penalty
 
+    track_aligned_reward_scale = 1.0
+    forward_progress_reward_scale = 1.0
+
     # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
@@ -150,6 +153,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'crash_reward_scale': crash_reward_scale,
         'height_reward_scale': height_reward_scale,
         'backward_reward_scale': backward_reward_scale,
+        'forward_progress_reward_scale': forward_progress_reward_scale, 
+        'track_aligned_reward_scale': track_aligned_reward_scale ,
         'death_cost': death_cost,
     }
     # TODO ----- END -----

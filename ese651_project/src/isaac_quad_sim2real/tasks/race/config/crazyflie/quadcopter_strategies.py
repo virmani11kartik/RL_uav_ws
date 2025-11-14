@@ -196,8 +196,8 @@ class DefaultQuadcopterStrategy:
                 "height": -height_penalty * self.env.rew['height_reward_scale'],
                 "backward": backward_motion * self.env.rew['backward_reward_scale'],
                 # ---- NEW TERMS -------------------------------------------------
-                "forward_progress": forward_progress_reward,
-                "track_aligned": track_aligned_reward,
+                "forward_progress": forward_progress_reward * self.env.rew['forward_progress_reward_scale'], 
+                "track_aligned": track_aligned_reward * self.env.rew['track_aligned_reward_scale'],
             }
 
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
