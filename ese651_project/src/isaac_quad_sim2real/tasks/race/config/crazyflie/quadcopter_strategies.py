@@ -144,7 +144,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 3 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -222,6 +222,10 @@ class DefaultQuadcopterStrategy:
         height_error = torch.abs(current_height - target_height)
         height_penalty = torch.clamp(height_error, 0.0, 2.0)
 
+        # ========================= LAP TIME =========================
+        # Giving penalty for Per-step time cost, Add a small negative reward every step.
+        step_penalty = -0.001  # tiny
+
         # ==================== COMPUTE FINAL REWARD ====================
         if self.cfg.is_train:
             rewards = {
@@ -233,7 +237,8 @@ class DefaultQuadcopterStrategy:
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
-                "backward": backward_motion * self.env.rew['backward_reward_scale']
+                # "backward": backward_motion * self.env.rew['backward_reward_scale']
+                # "step": step_penalty * self.env.rew["step_reward_scale"],
             }
             
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
