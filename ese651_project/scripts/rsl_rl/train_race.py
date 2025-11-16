@@ -119,18 +119,18 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     progress_gate_reward_scale = 2.0          # Reward for getting closer to gate
     gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
-    velocity_forward_reward_scale = 2.0#1.0       # Encourage fast forward motion
+    velocity_forward_reward_scale = 3.0#2.0#1.0       # Encourage fast forward motion
 
     # Orientation and navigation (medium weight)
     heading_alignment_reward_scale = 0.5#0.3      # Reward for pointing toward gate
 
     # Stability and control (low weight - penalize bad behavior)
-    tilt_reward_scale = 0.2                   # Penalize excessive roll/pitch
+    tilt_reward_scale = 0.1                   # Penalize excessive roll/pitch
     ang_vel_reward_scale = 0.05               # Penalize excessive angular velocity
     height_reward_scale = 0.3                 # Penalize deviating from target height
 
     # Safety (high penalty)
-    crash_reward_scale = 5.0                  # Penalty for crashing
+    crash_reward_scale = 7.0                  # Penalty for crashing
     death_cost = -50.0                        # Large penalty for episode termination
 
     backward_reward_scale = 0.2#1.5
