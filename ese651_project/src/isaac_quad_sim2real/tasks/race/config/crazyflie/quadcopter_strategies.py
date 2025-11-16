@@ -77,7 +77,7 @@ class DefaultQuadcopterStrategy:
         dist_to_gate_center = torch.linalg.norm(self.env._pose_drone_wrt_gate, dim=1)
         
         # Check if drone crossed the gate plane (positive x in gate frame means passed)
-        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] > 0
+        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.2
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
@@ -86,7 +86,7 @@ class DefaultQuadcopterStrategy:
         )
         
         # Check if drone was previously behind the gate
-        was_behind_gate = self.env._prev_x_drone_wrt_gate < 0
+        was_behind_gate = self.env._prev_x_drone_wrt_gate > 0
         
         # Gate is passed when drone crosses plane from behind and is within bounds
         gate_passed = crossed_gate_plane & within_gate_bounds & was_behind_gate
@@ -144,7 +144,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 3 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 3.0)  # Encourage speeds up to 3 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -205,7 +205,7 @@ class DefaultQuadcopterStrategy:
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
-                "height": -height_penalty * self.env.rew['height_reward_scale'],
+                # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 "backward": backward_motion * self.env.rew['backward_reward_scale']
             }
             

@@ -143,7 +143,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'heading_alignment_reward_scale': heading_alignment_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
-        'height_reward_scale': height_reward_scale,
+        # 'height_reward_scale': height_reward_scale,
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost,
         'backward_reward_scale': backward_reward_scale,
