@@ -81,8 +81,8 @@ class DefaultQuadcopterStrategy:
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.5) &  # Y within gate width
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.5)    # Z within gate height
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.6) &  # Y within gate width
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.6)    # Z within gate height
         )
         
         # Check if drone was previously behind the gate
@@ -171,8 +171,18 @@ class DefaultQuadcopterStrategy:
         pitch = euler_tuple[1]
         
         # Allow some tilt for maneuvering but penalize extreme angles
-        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.8, 0.0, 2.0)
-        
+        # Linear Tilt Penalty
+        # tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
+
+        # Quadratic Hinge on Tilt
+        tilt_mag = torch.abs(roll) + torch.abs(pitch)
+
+        # Free zone up to 0.5 rad
+        tilt_excess = torch.clamp(tilt_mag - 0.6, 0.0)
+
+        # Quadratic growth after that
+        tilt_penalty = torch.clamp(tilt_excess ** 2, 0.0, 4.0)
+                
         # Penalize excessive angular velocities (encourage smooth control)
         ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
         
