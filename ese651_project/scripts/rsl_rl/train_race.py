@@ -106,7 +106,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_dir = os.path.join(log_root_path, log_dir)
 
     # TODO ----- START ----- Define rewards scales
-    # reward scales
+    #reward scales
     # progress_goal_reward_scale = 50.0
     # crash_reward = -1.0
     # death_cost = -10.0
@@ -117,47 +117,38 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     #     'death_cost': death_cost,
     # }
 
+    progress_gate_reward_scale = 2.0          # Reward for getting closer to gate
+    gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
+    velocity_forward_reward_scale = 2.0#1.0       # Encourage fast forward motion
 
-    # TODO ----- START ----- Define rewards scales
-    # Progress and forward motion rewards
-    progress_gate_reward_scale = 3.0              # Reward for getting closer to gate
-    velocity_forward_reward_scale = 2.0           # Velocity towards gate
-    gate_pass_reward_scale = 15.0                 # Large bonus for passing gate correctly
-    gate_centering_reward_scale = 1.5             # NEW: Reward for staying centered in gate
+    # Orientation and navigation (medium weight)
+    heading_alignment_reward_scale = 0.5#0.3      # Reward for pointing toward gate
 
-    # Orientation and alignment
-    heading_alignment_reward_scale = 1.5          # Pointing toward gate
-    backward_reward_scale = 2.0                   # Penalty for backward motion
+    # Stability and control (low weight - penalize bad behavior)
+    tilt_reward_scale = 0.1                   # Penalize excessive roll/pitch
+    ang_vel_reward_scale = 0.05               # Penalize excessive angular velocity
+    height_reward_scale = 0.3                 # Penalize deviating from target height
 
-    # Stability and control penalties
-    tilt_reward_scale = 0.3                       # Penalize excessive roll/pitch
-    ang_vel_reward_scale = 0.1                    # Penalize high angular velocities
-    height_reward_scale = 0.4                     # Penalize height deviations
+    # Safety (high penalty)
+    crash_reward_scale = 5.0                  # Penalty for crashing
+    death_cost = -50.0                        # Large penalty for episode termination
 
-    # Safety penalties
-    crash_reward_scale = 8.0                      # Penalty for crashing
-    death_cost = -55.0                            # Episode termination penalty
-
-    track_aligned_reward_scale = 1.0
-    forward_progress_reward_scale = 1.0
+    backward_reward_scale = 0.2#1.5
 
     # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
-        'velocity_forward_reward_scale': velocity_forward_reward_scale,
         'gate_pass_reward_scale': gate_pass_reward_scale,
-        'gate_centering_reward_scale': gate_centering_reward_scale,  # NEW KEY
+        'velocity_forward_reward_scale': velocity_forward_reward_scale,
         'heading_alignment_reward_scale': heading_alignment_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
+        # 'height_reward_scale': height_reward_scale,
         'crash_reward_scale': crash_reward_scale,
-        'height_reward_scale': height_reward_scale,
-        'backward_reward_scale': backward_reward_scale,
-        'forward_progress_reward_scale': forward_progress_reward_scale, 
-        'track_aligned_reward_scale': track_aligned_reward_scale ,
         'death_cost': death_cost,
+        'backward_reward_scale': backward_reward_scale,
     }
-    # TODO ----- END -----
+
     # TODO ----- END -----
 
     env_cfg.is_train = True
