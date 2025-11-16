@@ -144,7 +144,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 5.5)  # Encourage speeds up to 3 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 3 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -172,16 +172,33 @@ class DefaultQuadcopterStrategy:
         
         # Allow some tilt for maneuvering but penalize extreme angles
         # Linear Tilt Penalty
-        # tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
+        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.5, 0.0, 2.0)
 
         # Quadratic Hinge on Tilt
-        tilt_mag = torch.abs(roll) + torch.abs(pitch)
+        # tilt_mag = torch.abs(roll) + torch.abs(pitch)
 
-        # Free zone up to 0.5 rad
-        tilt_excess = torch.clamp(tilt_mag - 0.6, 0.0)
+        # # Free zone up to 0.5 rad
+        # tilt_excess = torch.clamp(tilt_mag - 0.6, 0.0)
 
-        # Quadratic growth after that
-        tilt_penalty = torch.clamp(tilt_excess ** 2, 0.0, 4.0)
+        # # Quadratic growth after that
+        # tilt_penalty = torch.clamp(tilt_excess ** 2, 0.0, 4.0)
+
+        # Speed-aware tilt penalty
+
+        # tilt_mag = torch.abs(roll) + torch.abs(pitch)
+
+        # # Base excess tilt beyond a comfortable threshold
+        # tilt_excess = torch.clamp(tilt_mag - 0.4, 0.0, 2.0)  # 0.4 rad free (~23°)
+
+        # # Speed in world frame
+        # vel_w = self.env._robot.data.root_com_lin_vel_w
+        # speed = torch.linalg.norm(vel_w, dim=1)
+
+        # # Normalize speed: 0 m/s -> 1,  v >= 6 m/s -> ~0
+        # speed_norm = torch.clamp(speed / 6.0, 0.0, 1.0)
+        # speed_factor = 1.0 - speed_norm
+
+        # tilt_penalty = tilt_excess * speed_factor
                 
         # Penalize excessive angular velocities (encourage smooth control)
         ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
@@ -357,6 +374,10 @@ class DefaultQuadcopterStrategy:
         # Call robot reset first
         self.env._robot.reset(env_ids)
 
+        # >>> Domain randomization: TRAINING ONLY <<<
+        if self.cfg.is_train:
+            self._randomize_dynamics(env_ids)
+
         # Initialize model paths if needed
         if not self.env._models_paths_initialized:
             num_models_per_env = self.env._waypoints.size(0)
@@ -513,3 +534,73 @@ class DefaultQuadcopterStrategy:
         self.env._prev_x_drone_wrt_gate[env_ids] = -1.0  # Initialize behind gate
 
         self.env._crashed[env_ids] = 0
+
+    def _randomize_dynamics(self, env_ids: torch.Tensor):
+        """Domain-randomize dynamics for the given env indices (training only)."""
+        device = self.device
+        n = len(env_ids)
+
+        # Uniform in [0,1] for each sampled group
+        r = torch.rand(n, device=device)
+
+        # ----- TWR -----
+        # factors: 0.95 to 1.05
+        twr_min = self.cfg.thrust_to_weight * 0.95
+        twr_max = self.cfg.thrust_to_weight * 1.05
+        twr_samples = twr_min + r * (twr_max - twr_min)
+        self.env._thrust_to_weight[env_ids] = twr_samples
+
+        # ----- Aerodynamics -----
+        r_xy = torch.rand(n, device=device)
+        r_z  = torch.rand(n, device=device)
+
+        k_xy_min = self.cfg.k_aero_xy * 0.5
+        k_xy_max = self.cfg.k_aero_xy * 2.0
+        k_z_min  = self.cfg.k_aero_z * 0.5
+        k_z_max  = self.cfg.k_aero_z * 2.0
+
+        k_xy = k_xy_min + r_xy * (k_xy_max - k_xy_min)
+        k_z  = k_z_min  + r_z  * (k_z_max  - k_z_min)
+
+        self.env._K_aero[env_ids, :2] = k_xy.unsqueeze(1)
+        self.env._K_aero[env_ids, 2]  = k_z
+
+        # ----- PID roll/pitch gains -----
+        r_kp_rp = torch.rand(n, device=device)
+        r_ki_rp = torch.rand(n, device=device)
+        r_kd_rp = torch.rand(n, device=device)
+
+        kp_rp_min = self.cfg.kp_omega_rp * 0.85
+        kp_rp_max = self.cfg.kp_omega_rp * 1.15
+        ki_rp_min = self.cfg.ki_omega_rp * 0.85
+        ki_rp_max = self.cfg.ki_omega_rp * 1.15
+        kd_rp_min = self.cfg.kd_omega_rp * 0.7
+        kd_rp_max = self.cfg.kd_omega_rp * 1.3
+
+        kp_rp = kp_rp_min + r_kp_rp * (kp_rp_max - kp_rp_min)
+        ki_rp = ki_rp_min + r_ki_rp * (ki_rp_max - ki_rp_min)
+        kd_rp = kd_rp_min + r_kd_rp * (kd_rp_max - kd_rp_min)
+
+        self.env._kp_omega[env_ids, :2] = kp_rp.unsqueeze(1)
+        self.env._ki_omega[env_ids, :2] = ki_rp.unsqueeze(1)
+        self.env._kd_omega[env_ids, :2] = kd_rp.unsqueeze(1)
+
+        # ----- PID yaw gains -----
+        r_kp_y = torch.rand(n, device=device)
+        r_ki_y = torch.rand(n, device=device)
+        r_kd_y = torch.rand(n, device=device)
+
+        kp_y_min = self.cfg.kp_omega_y * 0.85
+        kp_y_max = self.cfg.kp_omega_y * 1.15
+        ki_y_min = self.cfg.ki_omega_y * 0.85
+        ki_y_max = self.cfg.ki_omega_y * 1.15
+        kd_y_min = self.cfg.kd_omega_y * 0.7
+        kd_y_max = self.cfg.kd_omega_y * 1.3
+
+        kp_y = kp_y_min + r_kp_y * (kp_y_max - kp_y_min)
+        ki_y = ki_y_min + r_ki_y * (ki_y_max - ki_y_min)
+        kd_y = kd_y_min + r_kd_y * (kd_y_max - kd_y_min)
+
+        self.env._kp_omega[env_ids, 2] = kp_y
+        self.env._ki_omega[env_ids, 2] = ki_y
+        self.env._kd_omega[env_ids, 2] = kd_y
