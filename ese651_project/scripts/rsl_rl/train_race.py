@@ -106,7 +106,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     log_dir = os.path.join(log_root_path, log_dir)
 
     # TODO ----- START ----- Define rewards scales
-    # reward scales
+    #reward scales
     # progress_goal_reward_scale = 50.0
     # crash_reward = -1.0
     # death_cost = -10.0
@@ -118,25 +118,27 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # }
 
     progress_gate_reward_scale = 2.0          # Reward for getting closer to gate
-    gate_pass_reward_scale = 5.0 #5.0            # Large bonus for passing through gate
-    velocity_forward_reward_scale = 2.0#1.0       # Encourage fast forward motion
+    gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
+    velocity_forward_reward_scale = 2.5#1.0       # Encourage fast forward motion
 
     # Orientation and navigation (medium weight)
-    heading_alignment_reward_scale = 1.5#0.3      # Reward for pointing toward gate
-
-    smoothness_reward_scale = 0.05  
-    racing_line_reward_scale = 0.1
+    heading_alignment_reward_scale = 0.5#0.3      # Reward for pointing toward gate
 
     # Stability and control (low weight - penalize bad behavior)
     tilt_reward_scale = 0.1                   # Penalize excessive roll/pitch
     ang_vel_reward_scale = 0.05               # Penalize excessive angular velocity
     height_reward_scale = 0.3                 # Penalize deviating from target height
 
-    height_reward_scale = 0.2
-    
+    # Time-based incentives (NEW)
+    time_penalty_scale = 0.015              # Small penalty per timestep to encourage speed
+    lap_time_reward_scale = 2.5            # Reward for faster gate-to-gate transitions
+    velocity_optimal_reward_scale = 1.5    # Reward for maintaining optimal racing speeds
+
     # Safety (high penalty)
     crash_reward_scale = 5.0                  # Penalty for crashing
-    death_cost = -30.0                        # Large penalty for episode termination
+    death_cost = -50.0                        # Large penalty for episode termination
+
+    #backward_reward_scale = 0.2#1.5
 
     # Assemble rewards dictionary
     rewards = {
@@ -144,45 +146,17 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'gate_pass_reward_scale': gate_pass_reward_scale,
         'velocity_forward_reward_scale': velocity_forward_reward_scale,
         'heading_alignment_reward_scale': heading_alignment_reward_scale,
-        'smoothness_reward_scale':smoothness_reward_scale,
-        'racing_line_reward_scale':racing_line_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
-        'height_reward_scale': height_reward_scale,
+        # 'height_reward_scale': height_reward_scale,
+        'time_penalty_scale': time_penalty_scale,
+        'lap_time_reward_scale': lap_time_reward_scale,
+        'velocity_optimal_reward_scale': velocity_optimal_reward_scale,
         'crash_reward_scale': crash_reward_scale,
-        'death_cost': death_cost,
+        'death_cost': death_cost
+        #'backward_reward_scale': backward_reward_scale,
     }
-    # TODO ----- END -----
 
-    # TODO ----- START ----- Define rewards scales
-    # reward scales
-    progress_gate_reward_scale = 2.0
-    velocity_forward_reward_scale = 2.0
-    gate_pass_reward_scale = 5.0
-    heading_alignment_reward_scale = 1.5
-    tilt_reward_scale = 1.0
-    ang_vel_reward_scale = 0.5
-    crash_reward_scale = 10.0
-    height_reward_scale = 0.8
-    smoothness_reward_scale = 0.2
-    racing_line_reward_scale = 0.5
-    collision_risk_reward_scale = 1.5
-    death_cost = -50.0
-
-    rewards = {
-        'progress_gate_reward_scale': progress_gate_reward_scale,
-        'velocity_forward_reward_scale': velocity_forward_reward_scale,
-        'gate_pass_reward_scale': gate_pass_reward_scale,
-        'heading_alignment_reward_scale': heading_alignment_reward_scale,
-        'tilt_reward_scale': tilt_reward_scale,
-        'ang_vel_reward_scale': ang_vel_reward_scale,
-        'crash_reward_scale': crash_reward_scale,
-        'height_reward_scale': height_reward_scale,
-        'smoothness_reward_scale': smoothness_reward_scale,
-        'racing_line_reward_scale': racing_line_reward_scale,
-        'collision_risk_reward_scale': collision_risk_reward_scale,
-        'death_cost': death_cost,
-    }
     # TODO ----- END -----
 
     env_cfg.is_train = True
