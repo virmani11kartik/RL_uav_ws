@@ -145,67 +145,70 @@ def main():
     if hasattr(obs, "get"):  # Check if it's a TensorDict
         obs = obs["policy"]  # Extract the policy observation
     
-    # ==================== LAP TIME TRACKING ====================
-    lap_start_time = torch.zeros(env.num_envs, device=env.unwrapped.device)
-    lap_times = []
-    previous_gates_passed = torch.zeros(env.num_envs, device=env.unwrapped.device)
-    gates_per_lap = env.unwrapped._waypoints.shape[0]  # Get total gates per lap
-    print(f"[INFO] Tracking lap times - {gates_per_lap} gates per lap")
-    # ==================== END LAP TIME TRACKING ====================
-    
+    # ==================== LAP TIME TRACKING (FIXED) ====================
+    gates_per_lap = env.unwrapped._waypoints.shape[0]               # e.g. 6
+    previous_lap_count = torch.zeros(env.num_envs, dtype=torch.long, device=env.unwrapped.device)
+    lap_start_time     = torch.zeros(env.num_envs, device=env.unwrapped.device)
+    lap_times: list[float] = []
+
+    # initialise start time (first lap starts at t = 0)
+    current_time = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
+    lap_start_time.copy_(current_time)
+
+    print(f"[INFO] Tracking lap times – {gates_per_lap} gates per lap")
+    # ==================================================================
+
     timestep = 0
-    # simulate environment
     while simulation_app.is_running():
-        # run everything in inference mode
         with torch.inference_mode():
-            # agent stepping
             actions = policy(obs)
-            # env stepping
             obs, rewards, dones, infos = env.step(actions)
-            # Extract tensor from TensorDict for policy
-            if hasattr(obs, "get"):  # Check if it's a TensorDict
-                obs = obs["policy"]  # Extract the policy observation
-            
-            # ==================== LAP TIME TRACKING ====================
-            current_gates_passed = env.unwrapped._n_gates_passed.clone()
-            current_time = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
-            
+
+            if hasattr(obs, "get"):
+                obs = obs["policy"]
+
+            # ------------------- LAP TIME TRACKING -------------------
+            current_gates = env.unwrapped._n_gates_passed.clone()          # total gates passed since reset
+            current_time  = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
+
+            # how many full laps have been completed in this environment?
+            current_lap_count = current_gates // gates_per_lap
+
+            # detect newly finished laps
+            new_laps = current_lap_count - previous_lap_count
             for env_idx in range(env.num_envs):
-                # Check if a new lap started (gates passed increased by gates_per_lap)
-                if current_gates_passed[env_idx] > previous_gates_passed[env_idx] + (gates_per_lap - 1):
-                    lap_time = current_time[env_idx].item() - lap_start_time[env_idx].item()
-                    if lap_time > 0.1:  # Avoid logging initial reset as lap
+                for _ in range(new_laps[env_idx].item()):
+                    lap_time = (current_time[env_idx] - lap_start_time[env_idx]).item()
+                    if lap_time > 0.5:                     # filter spurious 0-time laps after reset
                         lap_times.append(lap_time)
-                        print(f"🚀 Lap completed! Time: {lap_time:.2f}s | Total laps: {len(lap_times)}")
-                        lap_start_time[env_idx] = current_time[env_idx]
-            
-            previous_gates_passed = current_gates_passed.clone()
-            # ==================== END LAP TIME TRACKING ====================
-            
-        if args_cli.video:
-            timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
-                break
+                        print(f"Env {env_idx} | Lap {len(lap_times)} completed → {lap_time:.3f}s")
+                    # restart timer for the next lap
+                    lap_start_time[env_idx] = current_time[env_idx]
 
-    # ==================== FINAL LAP TIME SUMMARY ====================
+            previous_lap_count = current_lap_count.clone()
+            # ---------------------------------------------------------
+
+            if args_cli.video:
+                timestep += 1
+                if timestep >= args_cli.video_length:
+                    break
+
+    # ========================= FINAL SUMMARY =========================
     if lap_times:
-        print(f"\n{'='*50}")
-        print(f"🏁 FINAL LAP TIMES SUMMARY")
-        print(f"{'='*50}")
-        for i, time in enumerate(lap_times, 1):
-            print(f"Lap {i}: {time:.2f}s")
-        print(f"{'='*50}")
-        print(f"Best lap: {min(lap_times):.2f}s")
-        print(f"Average lap: {sum(lap_times)/len(lap_times):.2f}s")
-        print(f"Total laps completed: {len(lap_times)}")
+        print("\n" + "="*60)
+        print("FINAL LAP TIMES".center(60))
+        print("="*60)
+        for i, t in enumerate(lap_times, 1):
+            print(f"Lap {i:2d}: {t:.3f} s")
+        print("-"*60)
+        print(f"Best     : {min(lap_times):.3f} s")
+        print(f"Average  : {sum(lap_times)/len(lap_times):.3f} s")
+        print(f"Total laps: {len(lap_times)}")
+        print("="*60)
     else:
-        print("No laps completed during this run.")
-    # ==================== END FINAL SUMMARY ====================
+        print("No full laps were completed during the run.")
 
-    # close the simulator
     env.close()
-
 
 if __name__ == "__main__":
     # run the main function

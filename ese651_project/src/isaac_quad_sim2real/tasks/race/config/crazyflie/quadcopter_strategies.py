@@ -86,8 +86,8 @@ class DefaultQuadcopterStrategy:
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.60) &  # Y within gate width
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.60)    # Z within gate height
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.525) &  # Y within gate width
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.525)    # Z within gate height
         )
         
         # Check if drone was previously behind the gate
@@ -163,19 +163,32 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 7.0)  # Encourage speeds up to 7 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 10.0)  # Encourage speeds up to 7 m/s
 
         # ==================== GATE 3 SPEED CONTROL ====================
-        # Penalize excessive speed when approaching gate 3 to prevent overshoot
+        # Sophisticated distance-based speed control for gate 3 to prevent overshoot
         if torch.any(self.env._idx_wp == 3):
             gate_3_mask = (self.env._idx_wp == 3)
             speed = torch.linalg.norm(vel_w, dim=1)
-            # Penalize speeds > 4 m/s when approaching gate 3
-            overspeed_penalty = torch.clamp(speed - 4.0, 0.0) * gate_3_mask.float()
+            
+            # Get distance to gate 3 - stronger penalty when closer
+            dist_to_gate_3 = torch.linalg.norm(
+                self.env._desired_pos_w - self.env._robot.data.root_link_pos_w, dim=1
+            )
+            
+            # Distance-based penalty: stronger when closer to gate
+            # Full penalty (1.0) when < 1m from gate, no penalty when > 2.5m from gate
+            distance_factor = torch.clamp((2.5 - dist_to_gate_3) / 2.0, 0.0, 1.0)
+            
+            # Speed threshold: 4 m/s max when close to gate, but allow higher speeds when far
+            # Dynamic speed limit: 6 m/s when far, 4 m/s when close
+            dynamic_speed_limit = 6.0 + (4.0 * (1.0 - distance_factor))  # 4-6 m/s range
+            
+            # Penalize speeds above the dynamic limit
+            overspeed_amount = torch.clamp(speed - dynamic_speed_limit, 0.0)
+            overspeed_penalty = overspeed_amount * gate_3_mask.float() * distance_factor
+            
             velocity_reward -= overspeed_penalty * 0.8
-
-        # Extra penalty for moving backwards relative to the current gate
-        backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
         
         # ==================== ORIENTATION ALIGNMENT ====================
         # Reward for pointing towards the gate
