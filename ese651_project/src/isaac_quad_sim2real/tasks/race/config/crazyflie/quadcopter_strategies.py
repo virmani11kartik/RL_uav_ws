@@ -172,7 +172,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 7.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 8.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -268,8 +268,11 @@ class DefaultQuadcopterStrategy:
 
 
         # Increase speed limit from 7.0 to 10.0 for specific gate transitions
-        speed_limit = torch.where(boost_condition, 9.5, 7.0)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, speed_limit)
+        speed_limit = torch.where(boost_condition, 10.5, 8.0)
+        #velocity_reward = torch.clamp(velocity_towards_gate, -1.0, speed_limit)
+
+        velocity_reward = torch.where(velocity_towards_gate < -1.0, -1.0, velocity_towards_gate)
+        velocity_reward = torch.where(velocity_reward > speed_limit, speed_limit, velocity_reward)
 
         # ==================== COMPUTE FINAL REWARD ====================
         if self.cfg.is_train:
