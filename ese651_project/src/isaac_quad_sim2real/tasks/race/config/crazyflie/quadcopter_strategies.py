@@ -73,6 +73,28 @@ class DefaultQuadcopterStrategy:
     def get_rewards(self) -> torch.Tensor:
         """Compute rewards for drone racing through gates with minimal lap time."""
 
+        # ==================== CURRICULUM LEARNING ====================
+        # Get current training progress (0.0 to 1.0)
+        if self.cfg.is_train:
+            # Use a fixed curriculum based on iteration count
+            if self.env.iteration < 500:  # First 500 iterations
+                gate_bound = 0.60
+                normal_speed_limit = 8.0
+                boost_speed_limit = 10.5
+            elif self.env.iteration < 800:  # Next 300 iterations  
+                gate_bound = 0.70
+                normal_speed_limit = 9.0
+                boost_speed_limit = 11.5
+            else:  # Final 200 iterations
+                gate_bound = 0.75
+                normal_speed_limit = 10.0
+                boost_speed_limit = 12.0
+        else:
+            # Evaluation mode - use hardest settings
+            gate_bound = 0.75
+            normal_speed_limit = 10.0
+            boost_speed_limit = 12.0
+
         # ==================== GATE PASSING DETECTION ====================
         # Check if drone has passed through current gate
         # Gate is considered passed when drone crosses the gate plane (x > 0 in gate frame)
@@ -84,10 +106,10 @@ class DefaultQuadcopterStrategy:
         # Check if drone crossed the gate plane (positive x in gate frame means passed)
         crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.18
         
-        # Check if drone is within gate boundaries (laterally)
+        # Apply curriculum gate bounds
         within_gate_bounds = (
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.60) &  # Y within gate width
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.60)    # Z within gate height
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < gate_bound) &  # Y within gate width
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < gate_bound)    # Z within gate height
         )
         
         # Check if drone was previously behind the gate
@@ -118,7 +140,7 @@ class DefaultQuadcopterStrategy:
             self.env._n_gates_passed[ids_gate_passed] += 1
             self.env._idx_wp[ids_gate_passed] = (self.env._idx_wp[ids_gate_passed] + 1) % num_gates
 
-             # >>> lap detection: from last gate to gate 0
+            # >>> lap detection: from last gate to gate 0
             just_completed_lap_mask = (prev_wp_idx == (num_gates - 1))
             lap_done_envs = ids_gate_passed[just_completed_lap_mask]
 
@@ -143,11 +165,6 @@ class DefaultQuadcopterStrategy:
             )
 
         # ==================== PROGRESS METRICS ====================
-        # Distance to current gate
-        # distance_to_gate = torch.linalg.norm(
-        #     self.env._desired_pos_w - self.env._robot.data.root_link_pos_w, dim=1
-        # )
-        ################## NEW PROGRESS GATE STARTEGY #######################
         distance_to_gate = torch.linalg.norm(
             self.env._desired_pos_w[:, :2] - self.env._robot.data.root_link_pos_w[:, :2], dim=1
         )
@@ -159,12 +176,8 @@ class DefaultQuadcopterStrategy:
         self.env._last_distance_to_goal = distance_to_gate.detach()
         # Clamp to avoid huge spikes
         progress_to_gate = torch.clamp(progress_raw, -1.0, 1.0)
-        #####################################################################
         
-        # Progress reward: inversely proportional to distance
-        # Use exponential decay to give stronger reward when close
-        # progress_to_gate = torch.exp(-distance_to_gate / 2.0)
-        ################## VELOCITY METRIC #######################
+        # ==================== VELOCITY METRIC ====================
         # Velocity towards gate (encourage forward motion)
         drone_to_gate_vec = self.env._desired_pos_w - self.env._robot.data.root_link_pos_w
         drone_to_gate_vec_normalized = drone_to_gate_vec / (distance_to_gate.unsqueeze(1) + 1e-6)
@@ -172,11 +185,8 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 8.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
-        # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
-        # backward_penalty = backward_speed  
         backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
         
         # ==================== ORIENTATION ALIGNMENT ====================
@@ -199,35 +209,8 @@ class DefaultQuadcopterStrategy:
         pitch = euler_tuple[1]
         
         # Allow some tilt for maneuvering but penalize extreme angles
-        # Linear Tilt Penalty
         tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
-
-        # Quadratic Hinge on Tilt
-        # tilt_mag = torch.abs(roll) + torch.abs(pitch)
-
-        # # Free zone up to 0.5 rad
-        # tilt_excess = torch.clamp(tilt_mag - 0.6, 0.0)
-
-        # # Quadratic growth after that
-        # tilt_penalty = torch.clamp(tilt_excess ** 2, 0.0, 4.0)
-
-        # Speed-aware tilt penalty
-
-        # tilt_mag = torch.abs(roll) + torch.abs(pitch)
-
-        # # Base excess tilt beyond a comfortable threshold
-        # tilt_excess = torch.clamp(tilt_mag - 0.4, 0.0, 2.0)  # 0.4 rad free (~23°)
-
-        # # Speed in world frame
-        # vel_w = self.env._robot.data.root_com_lin_vel_w
-        # speed = torch.linalg.norm(vel_w, dim=1)
-
-        # # Normalize speed: 0 m/s -> 1,  v >= 6 m/s -> ~0
-        # speed_norm = torch.clamp(speed / 6.0, 0.0, 1.0)
-        # speed_factor = 1.0 - speed_norm
-
-        # tilt_penalty = tilt_excess * speed_factor
-                
+                    
         # Penalize excessive angular velocities (encourage smooth control)
         ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
         
@@ -243,34 +226,15 @@ class DefaultQuadcopterStrategy:
         # Large penalty for crashing
         crash_penalty = (self.env._crashed > 0).float()
         
-        # ==================== HEIGHT MAINTENANCE ====================
-        # Encourage staying near gate height
-        target_height = self.env._desired_pos_w[:, 2]
-        current_height = self.env._robot.data.root_link_pos_w[:, 2]
-        height_error = torch.abs(current_height - target_height)
-        height_penalty = torch.clamp(height_error, 0.0, 2.0)
-
-        # ========================= LAP TIME =========================
-        # Giving penalty for Per-step time cost, Add a small negative reward every step.
-        step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
-
         # ==================== SPECIFIC GATE VELOCITY BOOST ====================
-        # Boost velocity reward for gate transitions 1→2 and 6→1 (straight sections)
+        # Conditions for specific gate transitions
         current_gate = self.env._idx_wp
         next_gate = (current_gate + 1) % self.env._waypoints.shape[0]
-
-        # Conditions for specific gate transitions
         boost_condition = ((current_gate == 1) & (next_gate == 2)) | ((current_gate == 6) & (next_gate == 1))
 
-        # Apply 1.5x boost to velocity reward in these sections
-        velocity_boost_factor = torch.where(boost_condition, 1.5, 1.0)
-        #velocity_reward = velocity_reward * velocity_boost_factor
-
-
-        # Increase speed limit from 7.0 to 10.0 for specific gate transitions
-        speed_limit = torch.where(boost_condition, 10.5, 8.0)
-        #velocity_reward = torch.clamp(velocity_towards_gate, -1.0, speed_limit)
-
+        # Apply curriculum speed limits
+        speed_limit = torch.where(boost_condition, boost_speed_limit, normal_speed_limit)
+        
         velocity_reward = torch.where(velocity_towards_gate < -1.0, -1.0, velocity_towards_gate)
         velocity_reward = torch.where(velocity_reward > speed_limit, speed_limit, velocity_reward)
 
