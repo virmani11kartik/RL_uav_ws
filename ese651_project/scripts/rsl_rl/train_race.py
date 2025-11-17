@@ -126,7 +126,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     # Stability and control (low weight - penalize bad behavior)
     tilt_reward_scale = 0.1                   # Penalize excessive roll/pitch
-    ang_vel_reward_scale = 0.05               # Penalize excessive angular velocity
+    ang_vel_reward_scale = 0.025               # Penalize excessive angular velocity
     height_reward_scale = 0.3                 # Penalize deviating from target height
 
     # Safety (high penalty)
