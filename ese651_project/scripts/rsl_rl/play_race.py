@@ -145,18 +145,11 @@ def main():
     if hasattr(obs, "get"):  # Check if it's a TensorDict
         obs = obs["policy"]  # Extract the policy observation
     
-    # ==================== LAP TIME TRACKING (FIXED) ====================
-    gates_per_lap = env.unwrapped._waypoints.shape[0]               # e.g. 6
-    previous_lap_count = torch.zeros(env.num_envs, dtype=torch.long, device=env.unwrapped.device)
-    lap_start_time     = torch.zeros(env.num_envs, device=env.unwrapped.device)
-    lap_times: list[float] = []
+    # ==================== SIMPLE GATE 0 PASSING TRACKING ====================
+    previous_idx_wp = env.unwrapped._idx_wp.clone()  # Track previous gate index
 
-    # initialise start time (first lap starts at t = 0)
-    current_time = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
-    lap_start_time.copy_(current_time)
-
-    print(f"[INFO] Tracking lap times – {gates_per_lap} gates per lap")
-    # ==================================================================
+    print(f"[INFO] Will print every time drone passes gate 0")
+    # =======================================================================
 
     timestep = 0
     while simulation_app.is_running():
@@ -167,46 +160,26 @@ def main():
             if hasattr(obs, "get"):
                 obs = obs["policy"]
 
-            # ------------------- LAP TIME TRACKING -------------------
-            current_gates = env.unwrapped._n_gates_passed.clone()          # total gates passed since reset
-            current_time  = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
+            # ------------------- SIMPLE GATE 0 PASSING TRACKING -------------------
+            current_idx_wp = env.unwrapped._idx_wp.clone()
 
-            # how many full laps have been completed in this environment?
-            current_lap_count = current_gates // gates_per_lap
-
-            # detect newly finished laps
-            new_laps = current_lap_count - previous_lap_count
+            # Detect when drone just passed gate 0
             for env_idx in range(env.num_envs):
-                for _ in range(new_laps[env_idx].item()):
-                    lap_time = (current_time[env_idx] - lap_start_time[env_idx]).item()
-                    if lap_time > 0.5:                     # filter spurious 0-time laps after reset
-                        lap_times.append(lap_time)
-                        print(f"Env {env_idx} | Lap {len(lap_times)} completed → {lap_time:.3f}s")
-                    # restart timer for the next lap
-                    lap_start_time[env_idx] = current_time[env_idx]
+                if current_idx_wp[env_idx] == 0 and previous_idx_wp[env_idx] != 0:
+                    # Just passed gate 0!
+                    print(f"Timestep {timestep} | Gate 0 PASSED!")
 
-            previous_lap_count = current_lap_count.clone()
-            # ---------------------------------------------------------
+            previous_idx_wp = current_idx_wp.clone()
+            # ----------------------------------------------------------------------
 
-            if args_cli.video:
-                timestep += 1
-                if timestep >= args_cli.video_length:
-                    break
+            timestep += 1
+            if args_cli.video and timestep >= args_cli.video_length:
+                break
+
+
 
     # ========================= FINAL SUMMARY =========================
-    if lap_times:
-        print("\n" + "="*60)
-        print("FINAL LAP TIMES".center(60))
-        print("="*60)
-        for i, t in enumerate(lap_times, 1):
-            print(f"Lap {i:2d}: {t:.3f} s")
-        print("-"*60)
-        print(f"Best     : {min(lap_times):.3f} s")
-        print(f"Average  : {sum(lap_times)/len(lap_times):.3f} s")
-        print(f"Total laps: {len(lap_times)}")
-        print("="*60)
-    else:
-        print("No full laps were completed during the run.")
+    
 
     env.close()
 
