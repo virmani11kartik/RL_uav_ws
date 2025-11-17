@@ -36,7 +36,10 @@ class DefaultQuadcopterStrategy:
 
         # Initialize episode sums for logging if in training mode
         if self.cfg.is_train and hasattr(env, 'rew'):
-            keys = [key.split("_reward_scale")[0] for key in env.rew.keys() if key != "death_cost"]
+            keys = [
+            "progress_gate", "velocity_forward", "gate_pass", "heading_alignment", 
+            "tilt", "ang_vel", "crash", "backward", "time_penalty", "trajectory"  # ADD NEW KEYS
+                ]
             self._episode_sums = {
                 key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
                 for key in keys
@@ -149,7 +152,7 @@ class DefaultQuadcopterStrategy:
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
         # backward_penalty = backward_speed  
-        #backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
+        backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
         
         # ==================== ORIENTATION ALIGNMENT ====================
         # Reward for pointing towards the gate
@@ -222,30 +225,30 @@ class DefaultQuadcopterStrategy:
         height_error = torch.abs(current_height - target_height)
         height_penalty = torch.clamp(height_error, 0.0, 2.0)
 
-        # ==================== SPEED-ADAPTIVE REWARDS ====================
-        # Detect straight sections vs turns for adaptive speed rewards
-        current_gate_normal = self.env._normal_vectors[self.env._idx_wp]
-        next_gate_normal = self.env._normal_vectors[(self.env._idx_wp + 1) % self.env._waypoints.shape[0]]
-        
-        # Calculate angle between current and next gate normals (indicates turn severity)
-        gate_angle = torch.acos(torch.clamp(
-            torch.sum(current_gate_normal * next_gate_normal, dim=1), -1.0, 1.0
-        ))
-        
-        # Straight section = small angle between gates (< 45 degrees)
-        straight_section = torch.exp(-gate_angle / (45.0 * D2R))  # 1.0 for straight, 0.0 for sharp turns
-        
-        # Speed reward boost in straight sections
-        speed_reward_boost = 1.0 + (0.8 * straight_section)  # 1.0-1.8x boost
-        
-        # Apply adaptive boost to velocity rewards
-        adaptive_velocity_reward = velocity_reward * speed_reward_boost
-        
+        # ==================== TIME AND TRAJECTORY REWARDS ====================
+        # Time penalty to create urgency
+        time_penalty = -0.02  # Small negative per timestep
+
+        # Optimal trajectory reward - bonus for taking shorter paths
+        current_gate_pos = self.env._waypoints[self.env._idx_wp, :3]
+        next_gate_pos = self.env._waypoints[(self.env._idx_wp + 1) % self.env._waypoints.shape[0], :3]
+
+        # Ideal direct distance between gates
+        ideal_gate_distance = torch.linalg.norm(next_gate_pos - current_gate_pos, dim=1)
+
+        # Actual path taken by drone (current position to next gate via current gate)
+        actual_path_distance = torch.linalg.norm(self.env._robot.data.root_link_pos_w - current_gate_pos, dim=1) + \
+                            torch.linalg.norm(next_gate_pos - current_gate_pos, dim=1)
+
+        # Reward for taking efficient path (closer to ideal = better)
+        path_efficiency = torch.exp(-(actual_path_distance - ideal_gate_distance) / 2.0)
+        trajectory_reward = torch.clamp(path_efficiency, 0.0, 1.0)
+
         # ==================== COMPUTE FINAL REWARD ====================
         if self.cfg.is_train:
             rewards = {
                 "progress_gate": progress_to_gate * self.env.rew['progress_gate_reward_scale'],
-                "velocity_forward": adaptive_velocity_reward * self.env.rew['velocity_forward_reward_scale'],  # UPDATED
+                "velocity_forward": velocity_reward * self.env.rew['velocity_forward_reward_scale'],
                 "gate_pass": gate_pass_bonus * self.env.rew['gate_pass_reward_scale'],
                 "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
@@ -253,7 +256,10 @@ class DefaultQuadcopterStrategy:
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 #"backward": backward_motion * self.env.rew['backward_reward_scale']
+                "time_penalty": time_penalty * torch.ones(self.num_envs, device=self.device),
+                "trajectory": trajectory_reward * self.env.rew['trajectory_reward_scale']
             }
+            
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
             
             # Apply death cost for terminated episodes
@@ -340,26 +346,6 @@ class DefaultQuadcopterStrategy:
         # Include previous actions to help with temporal consistency
         prev_actions = self.env._previous_actions
 
-        # ==================== MULTI-GATE PLANNING ====================
-        # Look ahead to next 2 gates for better trajectory planning
-        next_gate_1_idx = (current_gate_idx + 1) % self.env._waypoints.shape[0]
-        next_gate_2_idx = (current_gate_idx + 2) % self.env._waypoints.shape[0]
-        
-        next_gate_1_pos_w = self.env._waypoints[next_gate_1_idx, :3]
-        next_gate_2_pos_w = self.env._waypoints[next_gate_2_idx, :3]
-        
-        # Next 2 gates positions in body frame
-        next_gate_1_pos_b, _ = subtract_frame_transforms(
-            self.env._robot.data.root_link_pos_w,
-            self.env._robot.data.root_quat_w,
-            next_gate_1_pos_w
-        )
-        next_gate_2_pos_b, _ = subtract_frame_transforms(
-            self.env._robot.data.root_link_pos_w,
-            self.env._robot.data.root_quat_w,
-            next_gate_2_pos_w
-        )
-        
         # ==================== ASSEMBLE OBSERVATION VECTOR ====================
         obs = torch.cat(
             [
@@ -376,9 +362,8 @@ class DefaultQuadcopterStrategy:
                 dist_to_gate,                   # Distance to gate (1)
                 drone_pos_gate_frame,           # Position in gate frame (3)
                 
-                # Multi-gate planning (6 dims) - REPLACES old next_gate_info
-                next_gate_1_pos_b,              # Next gate position in body frame (3)
-                next_gate_2_pos_b,              # Gate after next in body frame (3)
+                # Next gate information (3 dims)
+                next_gate_pos_b,                # Next gate position in body frame (3)
                 
                 # Progress and history (5 dims)
                 gates_passed_normalized,        # Progress through course (1)
@@ -386,6 +371,10 @@ class DefaultQuadcopterStrategy:
             ],
             dim=-1,
         )
+        
+        observations = {"policy": obs}
+
+        return observations
 
     def reset_idx(self, env_ids: Optional[torch.Tensor]):
         """Reset specific environments to initial states with randomization."""

@@ -144,6 +144,15 @@ def main():
     # Extract tensor from TensorDict for policy
     if hasattr(obs, "get"):  # Check if it's a TensorDict
         obs = obs["policy"]  # Extract the policy observation
+    
+    # ==================== LAP TIME TRACKING ====================
+    lap_start_time = torch.zeros(env.num_envs, device=env.unwrapped.device)
+    lap_times = []
+    previous_gates_passed = torch.zeros(env.num_envs, device=env.unwrapped.device)
+    gates_per_lap = env.unwrapped._waypoints.shape[0]  # Get total gates per lap
+    print(f"[INFO] Tracking lap times - {gates_per_lap} gates per lap")
+    # ==================== END LAP TIME TRACKING ====================
+    
     timestep = 0
     # simulate environment
     while simulation_app.is_running():
@@ -156,11 +165,43 @@ def main():
             # Extract tensor from TensorDict for policy
             if hasattr(obs, "get"):  # Check if it's a TensorDict
                 obs = obs["policy"]  # Extract the policy observation
+            
+            # ==================== LAP TIME TRACKING ====================
+            current_gates_passed = env.unwrapped._n_gates_passed.clone()
+            current_time = env.unwrapped.episode_length_buf.float() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
+            
+            for env_idx in range(env.num_envs):
+                # Check if a new lap started (gates passed increased by gates_per_lap)
+                if current_gates_passed[env_idx] > previous_gates_passed[env_idx] + (gates_per_lap - 1):
+                    lap_time = current_time[env_idx].item() - lap_start_time[env_idx].item()
+                    if lap_time > 0.1:  # Avoid logging initial reset as lap
+                        lap_times.append(lap_time)
+                        print(f"🚀 Lap completed! Time: {lap_time:.2f}s | Total laps: {len(lap_times)}")
+                        lap_start_time[env_idx] = current_time[env_idx]
+            
+            previous_gates_passed = current_gates_passed.clone()
+            # ==================== END LAP TIME TRACKING ====================
+            
         if args_cli.video:
             timestep += 1
             # Exit the play loop after recording one video
             if timestep == args_cli.video_length:
                 break
+
+    # ==================== FINAL LAP TIME SUMMARY ====================
+    if lap_times:
+        print(f"\n{'='*50}")
+        print(f"🏁 FINAL LAP TIMES SUMMARY")
+        print(f"{'='*50}")
+        for i, time in enumerate(lap_times, 1):
+            print(f"Lap {i}: {time:.2f}s")
+        print(f"{'='*50}")
+        print(f"Best lap: {min(lap_times):.2f}s")
+        print(f"Average lap: {sum(lap_times)/len(lap_times):.2f}s")
+        print(f"Total laps completed: {len(lap_times)}")
+    else:
+        print("No laps completed during this run.")
+    # ==================== END FINAL SUMMARY ====================
 
     # close the simulator
     env.close()

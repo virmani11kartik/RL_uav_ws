@@ -133,6 +133,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     #time_penalty_scale = 0.015              # Small penalty per timestep to encourage speed
     #lap_time_reward_scale = 2.5            # Reward for faster gate-to-gate transitions
     #velocity_optimal_reward_scale = 1.5    # Reward for maintaining optimal racing speeds
+    time_penalty_scale = 1              # NEW: Small penalty per timestep
+    trajectory_reward_scale = 1.5          # NEW: Reward for efficient paths
 
     # Safety (high penalty)
     crash_reward_scale = 5.25                  # Penalty for crashing
@@ -152,6 +154,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         #'time_penalty_scale': time_penalty_scale,
         #'lap_time_reward_scale': lap_time_reward_scale,
         #'velocity_optimal_reward_scale': velocity_optimal_reward_scale,
+        'time_penalty_scale': time_penalty_scale,
+        'trajectory_reward_scale': trajectory_reward_scale,
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost
         #'backward_reward_scale': backward_reward_scale,
