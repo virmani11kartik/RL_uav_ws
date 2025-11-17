@@ -135,14 +135,15 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     backward_reward_scale = 0.2#1.5
 
-    step_reward_scale = 1.0
+    step_reward_scale = 4.0
+    lap_bonus_reward_scale = 1.0
 
     # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
         'gate_pass_reward_scale': gate_pass_reward_scale,
         'velocity_forward_reward_scale': velocity_forward_reward_scale,
-        'heading_alignment_reward_scale': heading_alignment_reward_scale,
+        # 'heading_alignment_reward_scale': heading_alignment_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
         # 'height_reward_scale': height_reward_scale,
@@ -150,6 +151,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'death_cost': death_cost,
         # 'backward_reward_scale': backward_reward_scale,
         # 'step_reward_scale': step_reward_scale,
+        # 'lap_bonus_reward_scale': lap_bonus_reward_scale,
     }
 
     # TODO ----- END -----

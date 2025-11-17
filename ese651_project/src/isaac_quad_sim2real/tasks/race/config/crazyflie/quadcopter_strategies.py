@@ -65,6 +65,11 @@ class DefaultQuadcopterStrategy:
         # Thrust to weight ratio
         self.env._thrust_to_weight[:] = self.env._twr_value
 
+        #Lap Counter
+        self._lap_counts = torch.zeros(
+            self.num_envs, dtype=torch.long, device = self.device
+        )
+
     def get_rewards(self) -> torch.Tensor:
         """Compute rewards for drone racing through gates with minimal lap time."""
 
@@ -77,12 +82,12 @@ class DefaultQuadcopterStrategy:
         dist_to_gate_center = torch.linalg.norm(self.env._pose_drone_wrt_gate, dim=1)
         
         # Check if drone crossed the gate plane (positive x in gate frame means passed)
-        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.2
+        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.18
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.6) &  # Y within gate width
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.6)    # Z within gate height
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.60) &  # Y within gate width
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.60)    # Z within gate height
         )
         
         # Check if drone was previously behind the gate
@@ -96,12 +101,35 @@ class DefaultQuadcopterStrategy:
 
         # Gate passing bonus (large reward for successfully passing through)
         gate_pass_bonus = gate_passed.float() * 10.0
+
+        # LAP COUNTER
+        num_gates = self.env._waypoints.shape[0]
+        lap_bonus = torch.zeros(self.num_envs, device=self.device)
+        ##########################################
         
         # Update waypoint indices for environments that passed gates
         ids_gate_passed = torch.where(gate_passed)[0]
         if len(ids_gate_passed) > 0:
+
+            # LAP COUNTER
+            # gate index BEFORE increment
+            prev_wp_idx = self.env._idx_wp[ids_gate_passed].clone()
+
             self.env._n_gates_passed[ids_gate_passed] += 1
-            self.env._idx_wp[ids_gate_passed] = (self.env._idx_wp[ids_gate_passed] + 1) % self.env._waypoints.shape[0]
+            self.env._idx_wp[ids_gate_passed] = (self.env._idx_wp[ids_gate_passed] + 1) % num_gates
+
+             # >>> lap detection: from last gate to gate 0
+            just_completed_lap_mask = (prev_wp_idx == (num_gates - 1))
+            lap_done_envs = ids_gate_passed[just_completed_lap_mask]
+
+            if len(lap_done_envs) > 0:
+                self._lap_counts[lap_done_envs] += 1  # strategy-local lap count
+
+                # assign a lap bonus (tune this value)
+                lap_bonus_value = 30.0
+                lap_bonus[lap_done_envs] = lap_bonus_value
+
+            ############################### LAP COUNTER END
             
             # Update desired positions to next gate
             self.env._desired_pos_w[ids_gate_passed, :2] = self.env._waypoints[self.env._idx_wp[ids_gate_passed], :2]
@@ -144,7 +172,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 6.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 7.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -172,7 +200,7 @@ class DefaultQuadcopterStrategy:
         
         # Allow some tilt for maneuvering but penalize extreme angles
         # Linear Tilt Penalty
-        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.5, 0.0, 2.0)
+        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
 
         # Quadratic Hinge on Tilt
         # tilt_mag = torch.abs(roll) + torch.abs(pitch)
@@ -224,7 +252,7 @@ class DefaultQuadcopterStrategy:
 
         # ========================= LAP TIME =========================
         # Giving penalty for Per-step time cost, Add a small negative reward every step.
-        step_penalty = -0.001  # tiny
+        step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
 
         # ==================== COMPUTE FINAL REWARD ====================
         if self.cfg.is_train:
@@ -232,13 +260,14 @@ class DefaultQuadcopterStrategy:
                 "progress_gate": progress_to_gate * self.env.rew['progress_gate_reward_scale'],
                 "velocity_forward": velocity_reward * self.env.rew['velocity_forward_reward_scale'],
                 "gate_pass": gate_pass_bonus * self.env.rew['gate_pass_reward_scale'],
-                "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
+                # "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 # "backward": backward_motion * self.env.rew['backward_reward_scale']
                 # "step": step_penalty * self.env.rew["step_reward_scale"],
+                # "lap_bonus": lap_bonus * self.env.rew['lap_bonus_reward_scale'],
             }
             
             reward = torch.sum(torch.stack(list(rewards.values())), dim=0)
@@ -539,6 +568,8 @@ class DefaultQuadcopterStrategy:
         self.env._prev_x_drone_wrt_gate[env_ids] = -1.0  # Initialize behind gate
 
         self.env._crashed[env_ids] = 0
+
+        self._lap_counts[env_ids] = 0
 
     def _randomize_dynamics(self, env_ids: torch.Tensor):
         """Domain-randomize dynamics for the given env indices (training only)."""
