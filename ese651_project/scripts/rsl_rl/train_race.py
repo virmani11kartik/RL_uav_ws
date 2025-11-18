@@ -138,6 +138,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     step_reward_scale = 4.0
     lap_bonus_reward_scale = 1.0
 
+    lap_time_reward_scale = 1
+
     # Add this to your reward scales section:
     #exit_speed_reward_scale = 1.8  # Reward for controlled exit speed after gate 3
 
@@ -150,6 +152,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
         # 'height_reward_scale': height_reward_scale,
+        'lap_time_reward_scale': lap_time_reward_scale,
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost
         # 'backward_reward_scale': backward_reward_scale,
