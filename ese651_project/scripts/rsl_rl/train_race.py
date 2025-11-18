@@ -119,31 +119,26 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     progress_gate_reward_scale = 2.0          # Reward for getting closer to gate
     gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
-    velocity_forward_reward_scale = 2.0#1.0       # Encourage fast forward motion
+    velocity_forward_reward_scale = 3.0#1.0       # Encourage fast forward motion
 
     # Orientation and navigation (medium weight)
     heading_alignment_reward_scale = 0.5#0.3      # Reward for pointing toward gate
 
     # Stability and control (low weight - penalize bad behavior)
     tilt_reward_scale = 0.1                   # Penalize excessive roll/pitch
-    ang_vel_reward_scale = 0.04      ###Changed from 0.05         # Penalize excessive angular velocity
+    ang_vel_reward_scale = 0.04               # Penalize excessive angular velocity
     height_reward_scale = 0.3                 # Penalize deviating from target height
 
     # Safety (high penalty)
-    crash_reward_scale = 7.0         ###Changed from 5         # Penalty for crashing
+    crash_reward_scale = 8.0                  # Penalty for crashing
     death_cost = -50.0                        # Large penalty for episode termination
 
     backward_reward_scale = 0.2#1.5
 
     step_reward_scale = 4.0
-    lap_bonus_reward_scale = 1.0
+    lap_time_reward_scale = 10.0
 
-    lap_time_reward_scale = 1
-
-    # Add this to your reward scales section:
-    #exit_speed_reward_scale = 1.8  # Reward for controlled exit speed after gate 3
-
-    # Then add it to your rewards dictionary:
+    # Assemble rewards dictionary
     rewards = {
         'progress_gate_reward_scale': progress_gate_reward_scale,
         'gate_pass_reward_scale': gate_pass_reward_scale,
@@ -152,14 +147,13 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'tilt_reward_scale': tilt_reward_scale,
         'ang_vel_reward_scale': ang_vel_reward_scale,
         # 'height_reward_scale': height_reward_scale,
-        'lap_time_reward_scale': lap_time_reward_scale,
         'crash_reward_scale': crash_reward_scale,
-        'death_cost': death_cost
+        'death_cost': death_cost,
         # 'backward_reward_scale': backward_reward_scale,
         # 'step_reward_scale': step_reward_scale,
-        # 'lap_bonus_reward_scale': lap_bonus_reward_scale,
-        #'exit_speed_reward_scale': exit_speed_reward_scale  # ADD THIS LINE
+        'lap_time_reward_scale': lap_time_reward_scale,
     }
+
     # TODO ----- END -----
 
     env_cfg.is_train = True

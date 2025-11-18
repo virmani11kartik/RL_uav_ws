@@ -174,7 +174,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 8.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 11.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -276,8 +276,16 @@ class DefaultQuadcopterStrategy:
             lap_times = current_time[lap_complete_envs] - self._last_lap_time[lap_complete_envs]
             
             # Vectorized reward calculation
-            lap_rewards = 100.0 / (lap_times + 1.0)
-            lap_time_reward[lap_complete_envs] = lap_rewards
+            # lap_rewards = 100.0 / (lap_times + 1.0)
+            # lap_time_reward[lap_complete_envs] = lap_rewards
+
+            # Linear reward: reward = - (lap_time - target)
+            #   lap_time < 6 → positive
+            #   lap_time = 6 → zero
+            #   lap_time > 6 → negative
+
+            # Store the rewards in the main tensor
+            lap_time_reward[lap_complete_envs] = -(lap_times - 6.2)
             
             # Update last lap time vectorized
             self._last_lap_time[lap_complete_envs] = current_time[lap_complete_envs]
