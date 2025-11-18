@@ -144,27 +144,44 @@ def main():
     # Extract tensor from TensorDict for policy
     if hasattr(obs, "get"):  # Check if it's a TensorDict
         obs = obs["policy"]  # Extract the policy observation
+    
+    # ==================== SIMPLE GATE 0 PASSING TRACKING ====================
+    previous_idx_wp = env.unwrapped._idx_wp.clone()  # Track previous gate index
+
+    print(f"[INFO] Will print every time drone passes gate 0")
+    # =======================================================================
+
     timestep = 0
-    # simulate environment
     while simulation_app.is_running():
-        # run everything in inference mode
         with torch.inference_mode():
-            # agent stepping
             actions = policy(obs)
-            # env stepping
             obs, rewards, dones, infos = env.step(actions)
-            # Extract tensor from TensorDict for policy
-            if hasattr(obs, "get"):  # Check if it's a TensorDict
-                obs = obs["policy"]  # Extract the policy observation
-        if args_cli.video:
+
+            if hasattr(obs, "get"):
+                obs = obs["policy"]
+
+            # ------------------- SIMPLE GATE 0 PASSING TRACKING -------------------
+            current_idx_wp = env.unwrapped._idx_wp.clone()
+
+            # Detect when drone just passed gate 0
+            for env_idx in range(env.num_envs):
+                if current_idx_wp[env_idx] == 0 and previous_idx_wp[env_idx] != 0:
+                    # Just passed gate 0!
+                    print(f"Timestep {timestep} | Gate 0 PASSED!")
+
+            previous_idx_wp = current_idx_wp.clone()
+            # ----------------------------------------------------------------------
+
             timestep += 1
-            # Exit the play loop after recording one video
-            if timestep == args_cli.video_length:
+            if args_cli.video and timestep >= args_cli.video_length:
                 break
 
-    # close the simulator
-    env.close()
 
+
+    # ========================= FINAL SUMMARY =========================
+    
+
+    env.close()
 
 if __name__ == "__main__":
     # run the main function

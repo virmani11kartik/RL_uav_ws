@@ -172,7 +172,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 10.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 8.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -570,6 +570,8 @@ class DefaultQuadcopterStrategy:
         self.env._crashed[env_ids] = 0
 
         self._lap_counts[env_ids] = 0
+
+        self._randomize_dynamics(env_ids)
 
     def _randomize_dynamics(self, env_ids: torch.Tensor):
         """Domain-randomize dynamics for the given env indices (training only)."""
