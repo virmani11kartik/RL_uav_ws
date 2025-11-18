@@ -136,7 +136,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     backward_reward_scale = 0.2#1.5
 
     step_reward_scale = 4.0
-    lap_time_reward_scale = 5.0
+    lap_time_reward_scale = 10
 
     # Assemble rewards dictionary
     rewards = {

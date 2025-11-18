@@ -138,18 +138,18 @@ class DefaultQuadcopterStrategy:
 
                 lap_times = current_time[lap_done_envs] - self._last_lap_time[lap_done_envs]
 
-                # Linear reward: target - lap_time
-                #   lap_time < 6.2 → positive
-                #   lap_time = 6.2 → zero
-                #   lap_time > 6.2 → negative
+                # Exponential reward: fast laps get big positive, slow laps get negative
                 target_lap_time = 6.2
-                lap_time_reward[lap_done_envs] = target_lap_time - lap_times
+                time_diff = lap_times - target_lap_time  # positive if slower, negative if faster
 
-                # Update last lap time for these envs
+                # Exponential penalty: negative for ANY time > 6.0s
+                lap_time_reward[lap_done_envs] = 5.0 * (torch.exp(-time_diff) - 1.0)
+
+                # Update last lap time for these envs (AFTER calculating current lap time)
                 self._last_lap_time[lap_done_envs] = current_time[lap_done_envs]
 
                 # assign a lap bonus (tune this value)
-                lap_bonus_value = 30.0
+                lap_bonus_value = 25.0
                 lap_bonus[lap_done_envs] = lap_bonus_value
 
             ############################### LAP COUNTER END
@@ -195,7 +195,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 11.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 15.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -223,7 +223,7 @@ class DefaultQuadcopterStrategy:
         
         # Allow some tilt for maneuvering but penalize extreme angles
         # Linear Tilt Penalty
-        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
+        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.7, 0.0, 2.0)
 
         # Quadratic Hinge on Tilt
         # tilt_mag = torch.abs(roll) + torch.abs(pitch)
