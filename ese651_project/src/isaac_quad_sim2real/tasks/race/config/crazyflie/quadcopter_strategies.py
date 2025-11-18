@@ -41,6 +41,7 @@ class DefaultQuadcopterStrategy:
                 key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
                 for key in keys
             }
+
         # Lap timing initialization
         self._last_lap_time = torch.zeros(self.num_envs, device=self.device)
 
@@ -108,6 +109,14 @@ class DefaultQuadcopterStrategy:
         num_gates = self.env._waypoints.shape[0]
         lap_bonus = torch.zeros(self.num_envs, device=self.device)
         ##########################################
+
+        # LAP TIMER
+
+        # Lap-time reward buffer
+        lap_time_reward = torch.zeros(self.num_envs, device=self.device)
+
+        # Current episode time in seconds
+        current_time = self.env.episode_length_buf.float() / self.cfg.policy_rate_hz
         
         # Update waypoint indices for environments that passed gates
         ids_gate_passed = torch.where(gate_passed)[0]
@@ -126,6 +135,18 @@ class DefaultQuadcopterStrategy:
 
             if len(lap_done_envs) > 0:
                 self._lap_counts[lap_done_envs] += 1  # strategy-local lap count
+
+                lap_times = current_time[lap_done_envs] - self._last_lap_time[lap_done_envs]
+
+                # Linear reward: target - lap_time
+                #   lap_time < 6.2 → positive
+                #   lap_time = 6.2 → zero
+                #   lap_time > 6.2 → negative
+                target_lap_time = 6.2
+                lap_time_reward[lap_done_envs] = target_lap_time - lap_times
+
+                # Update last lap time for these envs
+                self._last_lap_time[lap_done_envs] = current_time[lap_done_envs]
 
                 # assign a lap bonus (tune this value)
                 lap_bonus_value = 30.0
@@ -258,41 +279,41 @@ class DefaultQuadcopterStrategy:
 
 
         # ==================== LAP TIME REWARD ====================
-        lap_time_reward = torch.zeros(self.num_envs, device=self.device)
+        # lap_time_reward = torch.zeros(self.num_envs, device=self.device)
 
-        # Track when drone completes laps (passes gate 0)
-        current_idx = self.env._idx_wp.clone()
-        current_time = self.env.episode_length_buf.float() / self.cfg.policy_rate_hz  # FIXED!
+        # # Track when drone completes laps (passes gate 0)
+        # current_idx = self.env._idx_wp.clone()
+        # current_time = self.env.episode_length_buf.float() / self.cfg.policy_rate_hz  # FIXED!
 
-        # Detect when drone just passed gate 0 (completed a lap)
-        just_passed_gate_0 = (current_idx == 0) & (self.env._n_gates_passed > 0)
+        # # Detect when drone just passed gate 0 (completed a lap)
+        # just_passed_gate_0 = (current_idx == 0) & (self.env._n_gates_passed > 0)
 
     
-        # Detect environments that just passed gate 0
-        lap_complete_envs = torch.where(just_passed_gate_0)[0]
+        # # Detect environments that just passed gate 0
+        # lap_complete_envs = torch.where(just_passed_gate_0)[0]
 
-        if len(lap_complete_envs) > 0:
-            # Vectorized lap time calculation
-            lap_times = current_time[lap_complete_envs] - self._last_lap_time[lap_complete_envs]
+        # if len(lap_complete_envs) > 0:
+        #     # Vectorized lap time calculation
+        #     lap_times = current_time[lap_complete_envs] - self._last_lap_time[lap_complete_envs]
             
-            # Vectorized reward calculation
-            # lap_rewards = 100.0 / (lap_times + 1.0)
-            # lap_time_reward[lap_complete_envs] = lap_rewards
+        #     # Vectorized reward calculation
+        #     # lap_rewards = 100.0 / (lap_times + 1.0)
+        #     # lap_time_reward[lap_complete_envs] = lap_rewards
 
-            # Linear reward: reward = - (lap_time - target)
-            #   lap_time < 6 → positive
-            #   lap_time = 6 → zero
-            #   lap_time > 6 → negative
+        #     # Linear reward: reward = - (lap_time - target)
+        #     #   lap_time < 6 → positive
+        #     #   lap_time = 6 → zero
+        #     #   lap_time > 6 → negative
 
-            # Store the rewards in the main tensor
-            lap_time_reward[lap_complete_envs] = -(lap_times - 6.2)
+        #     # Store the rewards in the main tensor
+        #     lap_time_reward[lap_complete_envs] = -(lap_times - 6.2)
             
-            # Update last lap time vectorized
-            self._last_lap_time[lap_complete_envs] = current_time[lap_complete_envs]
+        #     # Update last lap time vectorized
+        #     self._last_lap_time[lap_complete_envs] = current_time[lap_complete_envs]
             
-            # Optional: print for debugging (but remove in final training)
-            #for i, env_idx in enumerate(lap_complete_envs):
-                #print(f"Env {env_idx}: Lap time {lap_times[i]:.2f}s → Reward: {lap_rewards[i]:.2f}")
+        #     # Optional: print for debugging (but remove in final training)
+        #     #for i, env_idx in enumerate(lap_complete_envs):
+        #         #print(f"Env {env_idx}: Lap time {lap_times[i]:.2f}s → Reward: {lap_rewards[i]:.2f}")
                 
 
         # ==================== COMPUTE FINAL REWARD ====================
@@ -612,6 +633,8 @@ class DefaultQuadcopterStrategy:
         self.env._crashed[env_ids] = 0
 
         self._lap_counts[env_ids] = 0
+
+        self._last_lap_time[env_ids] = 0.0
 
         self._randomize_dynamics(env_ids)
 
