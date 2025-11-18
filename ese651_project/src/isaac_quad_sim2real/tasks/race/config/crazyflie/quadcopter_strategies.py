@@ -267,15 +267,24 @@ class DefaultQuadcopterStrategy:
         # Detect when drone just passed gate 0 (completed a lap)
         just_passed_gate_0 = (current_idx == 0) & (self.env._n_gates_passed > 0)
 
-        for env_idx in range(self.num_envs):
-            if just_passed_gate_0[env_idx]:
-                if hasattr(self, '_last_lap_time'):
-                    lap_time = current_time[env_idx] - self._last_lap_time[env_idx]
-                    lap_reward = 100.0 / (lap_time + 1.0)
-                    lap_time_reward[env_idx] = lap_reward
-                    print(f"Lap completed! Time: {lap_time:.2f}s → Reward: {lap_reward:.2f}")
-                
-                self._last_lap_time[env_idx] = current_time[env_idx]
+    
+        # Detect environments that just passed gate 0
+        lap_complete_envs = torch.where(just_passed_gate_0)[0]
+
+        if len(lap_complete_envs) > 0:
+            # Vectorized lap time calculation
+            lap_times = current_time[lap_complete_envs] - self._last_lap_time[lap_complete_envs]
+            
+            # Vectorized reward calculation
+            lap_rewards = 100.0 / (lap_times + 1.0)
+            lap_time_reward[lap_complete_envs] = lap_rewards
+            
+            # Update last lap time vectorized
+            self._last_lap_time[lap_complete_envs] = current_time[lap_complete_envs]
+            
+            # Optional: print for debugging (but remove in final training)
+            #for i, env_idx in enumerate(lap_complete_envs):
+                #print(f"Env {env_idx}: Lap time {lap_times[i]:.2f}s → Reward: {lap_rewards[i]:.2f}")
                 
 
         # ==================== COMPUTE FINAL REWARD ====================
