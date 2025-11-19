@@ -117,7 +117,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     #     'death_cost': death_cost,
     # }
 
-    progress_gate_reward_scale = 1.8          # Reward for getting closer to gate
+    progress_gate_reward_scale = 2         # Reward for getting closer to gate
     gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
     velocity_forward_reward_scale = 3.0#1.0       # Encourage fast forward motion
 
@@ -138,7 +138,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     step_reward_scale = 4.0
     lap_time_reward_scale = 5.0
 
-    speed_reward_scale = 1.0 
+    speed_reward_scale = 1.5 
 
     # Assemble rewards dictionary
     rewards = {

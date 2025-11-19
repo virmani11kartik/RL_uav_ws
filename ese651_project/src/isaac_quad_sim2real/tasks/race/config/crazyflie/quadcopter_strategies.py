@@ -205,18 +205,19 @@ class DefaultQuadcopterStrategy:
         # ==================== GATE 1-2 STRAIGHT SPEED BONUS ====================
         # Encourage high speeds on the long straight between gate 1 and 2 (7m drop)
 
+
         speed_bonus = torch.zeros(self.num_envs, device=self.device)  
         if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
             straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
             speed = torch.linalg.norm(vel_w, dim=1)
             
-            # Quadratic bonus for high speeds on this long straight
-            # Bonus starts at 9 m/s and grows quadratically
-            speed_excess = torch.clamp(speed - 9.0, 0.0, 6.0)  # 9-15 m/s range
-            speed_bonus = (speed_excess ** 2)  # Quadratic scaling
-            
-            speed_bonus = speed_bonus * straight_mask.float()
-            # speed_bonus = (speed_excess ** 2)   # Quadratic scaling
+            # Only activate after 2500 iterations
+            if self.env.iteration >= 2500:
+                # Reward for speeds above 12 m/s, penalty for speeds below
+                speed_excess = speed - 12.0  # Positive above 12, negative below 12
+                speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
+                
+                speed_bonus = speed_excess * straight_mask.float()
     
         
         # ==================== ORIENTATION ALIGNMENT ====================
