@@ -204,6 +204,8 @@ class DefaultQuadcopterStrategy:
 
         # ==================== GATE 1-2 STRAIGHT SPEED BONUS ====================
         # Encourage high speeds on the long straight between gate 1 and 2 (7m drop)
+
+        straight_speed_bonus = torch.zeros(self.num_envs, device=self.device)  
         if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
             straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
             speed = torch.linalg.norm(vel_w, dim=1)
@@ -214,8 +216,8 @@ class DefaultQuadcopterStrategy:
             speed_bonus = (speed_excess ** 2) * 0.1  # Quadratic scaling
             
             straight_speed_bonus = speed_bonus * straight_mask.float()
-            velocity_reward += straight_speed_bonus
-            
+            speed_bonus = (speed_excess ** 2)   # Quadratic scaling
+    
         
         # ==================== ORIENTATION ALIGNMENT ====================
         # Reward for pointing towards the gate
@@ -242,7 +244,7 @@ class DefaultQuadcopterStrategy:
 
         ### Smoother Linear Tilt Pen
         tilt_mag = torch.abs(roll) + torch.abs(pitch)
-        tilt_penalty = torch.clamp(tilt_mag - 0.7, 0.0) * 2.0
+        tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
 
 
         # Quadratic Hinge on Tilt
@@ -346,6 +348,7 @@ class DefaultQuadcopterStrategy:
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "lap_time": lap_time_reward * self.env.rew['lap_time_reward_scale'],
+                "straight_speed": straight_speed_bonus * self.env.rew['straight_speed_reward_scale'],
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale']
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 # "backward": backward_motion * self.env.rew['backward_reward_scale']
