@@ -73,11 +73,6 @@ class DefaultQuadcopterStrategy:
             self.num_envs, dtype=torch.long, device = self.device
         )
 
-        #Lap Counter
-        self._lap_counts = torch.zeros(
-            self.num_envs, dtype=torch.long, device = self.device
-        )
-
     def get_rewards(self) -> torch.Tensor:
         """Compute rewards for drone racing through gates with minimal lap time."""
 
@@ -106,15 +101,26 @@ class DefaultQuadcopterStrategy:
         
         # Update previous x position for next timestep
         self.env._prev_x_drone_wrt_gate = self.env._pose_drone_wrt_gate[:, 0].clone()
+
+        # Gate passing bonus (large reward for successfully passing through)
+        gate_pass_bonus = gate_passed.float() * 10.0
+
+        # LAP COUNTER
+        num_gates = self.env._waypoints.shape[0]
+        lap_bonus = torch.zeros(self.num_envs, device=self.device)
+        ##########################################
+
+        # LAP TIMER
+
+        # Lap-time reward buffer
+        lap_time_reward = torch.zeros(self.num_envs, device=self.device)
+
+        # Current episode time in seconds
+        current_time = self.env.episode_length_buf.float() / self.cfg.policy_rate_hz
         
         # Update waypoint indices for environments that passed gates
         ids_gate_passed = torch.where(gate_passed)[0]
         if len(ids_gate_passed) > 0:
-
-            # LAP COUNTER
-            # gate index BEFORE increment
-            prev_wp_idx = self.env._idx_wp[ids_gate_passed].clone()
-
 
             # LAP COUNTER
             # gate index BEFORE increment
@@ -182,7 +188,6 @@ class DefaultQuadcopterStrategy:
         # Use exponential decay to give stronger reward when close
         # progress_to_gate = torch.exp(-distance_to_gate / 2.0)
         ################## VELOCITY METRIC #######################
-        ################## VELOCITY METRIC #######################
         # Velocity towards gate (encourage forward motion)
         drone_to_gate_vec = self.env._desired_pos_w - self.env._robot.data.root_link_pos_w
         drone_to_gate_vec_normalized = drone_to_gate_vec / (distance_to_gate.unsqueeze(1) + 1e-6)
@@ -190,7 +195,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 15.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 20.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -207,7 +212,7 @@ class DefaultQuadcopterStrategy:
             speed = torch.linalg.norm(vel_w, dim=1)
             
             # Only activate after 2500 iterations
-            if self.env.iteration >= 2500:
+            if self.env.iteration >= 500:
                 # Reward for speeds above 12 m/s, penalty for speeds below
                 speed_excess = speed - 12.0  # Positive above 12, negative below 12
                 speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
@@ -240,7 +245,7 @@ class DefaultQuadcopterStrategy:
 
         ### Smoother Linear Tilt Pen
         tilt_mag = torch.abs(roll) + torch.abs(pitch)
-        tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
+        tilt_penalty = torch.clamp(tilt_mag - 1.8, 0.0) * 2.0
 
 
         # Quadratic Hinge on Tilt
@@ -290,10 +295,6 @@ class DefaultQuadcopterStrategy:
         current_height = self.env._robot.data.root_link_pos_w[:, 2]
         height_error = torch.abs(current_height - target_height)
         height_penalty = torch.clamp(height_error, 0.0, 2.0)
-
-        # ========================= LAP TIME =========================
-        # Giving penalty for Per-step time cost, Add a small negative reward every step.
-        step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
 
         # ========================= LAP TIME =========================
         # Giving penalty for Per-step time cost, Add a small negative reward every step.
@@ -493,10 +494,6 @@ class DefaultQuadcopterStrategy:
 
         # Call robot reset first
         self.env._robot.reset(env_ids)
-
-        # >>> Domain randomization: TRAINING ONLY <<<
-        if self.cfg.is_train:
-            self._randomize_dynamics(env_ids)
 
         # >>> Domain randomization: TRAINING ONLY <<<
         if self.cfg.is_train:
