@@ -549,7 +549,7 @@ class DefaultQuadcopterStrategy:
             # Randomize starting position relative to gate
             # Position behind the gate with some variation
             x_local = torch.empty(n_reset, device=self.device).uniform_(-3.0, -1.0)  # 1-3m behind
-            y_local = torch.empty(n_reset, device=self.device).uniform_(-0.8, 0.8)   # Lateral variation
+            y_local = torch.empty(n_reset, device=self.device).uniform_(-1.0, 1.0)   # Lateral variation
             z_local = torch.empty(n_reset, device=self.device).uniform_(-0.3, 0.3)   # Vertical variation
             
             # Rotate local position to global frame
