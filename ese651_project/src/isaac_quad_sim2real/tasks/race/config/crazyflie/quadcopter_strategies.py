@@ -138,18 +138,18 @@ class DefaultQuadcopterStrategy:
 
                 lap_times = current_time[lap_done_envs] - self._last_lap_time[lap_done_envs]
 
-                # Exponential reward: fast laps get big positive, slow laps get negative
+                # Linear reward: target - lap_time
+                #   lap_time < 6.2 → positive
+                #   lap_time = 6.2 → zero
+                #   lap_time > 6.2 → negative
                 target_lap_time = 6.2
-                time_diff = lap_times - target_lap_time  # positive if slower, negative if faster
+                lap_time_reward[lap_done_envs] = target_lap_time - lap_times
 
-                # Exponential penalty: negative for ANY time > 6.0s
-                lap_time_reward[lap_done_envs] = 5.0 * (torch.exp(-time_diff) - 1.0)
-
-                # Update last lap time for these envs (AFTER calculating current lap time)
+                # Update last lap time for these envs
                 self._last_lap_time[lap_done_envs] = current_time[lap_done_envs]
 
                 # assign a lap bonus (tune this value)
-                lap_bonus_value = 25.0
+                lap_bonus_value = 30.0
                 lap_bonus[lap_done_envs] = lap_bonus_value
 
             ############################### LAP COUNTER END
@@ -200,7 +200,22 @@ class DefaultQuadcopterStrategy:
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
         # backward_penalty = backward_speed  
-        backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
+        #backward_motion = -torch.clamp(-velocity_towards_gate, 0, 2.0)
+
+        # ==================== GATE 1-2 STRAIGHT SPEED BONUS ====================
+        # Encourage high speeds on the long straight between gate 1 and 2 (7m drop)
+        if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
+            straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
+            speed = torch.linalg.norm(vel_w, dim=1)
+            
+            # Quadratic bonus for high speeds on this long straight
+            # Bonus starts at 9 m/s and grows quadratically
+            speed_excess = torch.clamp(speed - 9.0, 0.0, 6.0)  # 9-15 m/s range
+            speed_bonus = (speed_excess ** 2) * 0.1  # Quadratic scaling
+            
+            straight_speed_bonus = speed_bonus * straight_mask.float()
+            velocity_reward += straight_speed_bonus
+            
         
         # ==================== ORIENTATION ALIGNMENT ====================
         # Reward for pointing towards the gate
@@ -223,7 +238,12 @@ class DefaultQuadcopterStrategy:
         
         # Allow some tilt for maneuvering but penalize extreme angles
         # Linear Tilt Penalty
-        tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.7, 0.0, 2.0)
+        #tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
+
+        ### Smoother Linear Tilt Pen
+        tilt_mag = torch.abs(roll) + torch.abs(pitch)
+        tilt_penalty = torch.clamp(tilt_mag - 0.7, 0.0) * 2.0
+
 
         # Quadratic Hinge on Tilt
         # tilt_mag = torch.abs(roll) + torch.abs(pitch)
