@@ -142,7 +142,7 @@ class DefaultQuadcopterStrategy:
                 #   lap_time < 6.2 → positive
                 #   lap_time = 6.2 → zero
                 #   lap_time > 6.2 → negative
-                target_lap_time = 6.0
+                target_lap_time = 5.8
                 lap_time_reward[lap_done_envs] = target_lap_time - lap_times
 
                 # Update last lap time for these envs
@@ -212,7 +212,7 @@ class DefaultQuadcopterStrategy:
             speed = torch.linalg.norm(vel_w, dim=1)
             
             # Only activate after 2500 iterations
-            if self.env.iteration >= 500:
+            if self.env.iteration >= 1500:
                 # Reward for speeds above 12 m/s, penalty for speeds below
                 speed_excess = speed - 12.0  # Positive above 12, negative below 12
                 speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
@@ -245,7 +245,7 @@ class DefaultQuadcopterStrategy:
 
         ### Smoother Linear Tilt Pen
         tilt_mag = torch.abs(roll) + torch.abs(pitch)
-        tilt_penalty = torch.clamp(tilt_mag - 1.8, 0.0) * 2.0
+        tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
 
 
         # Quadratic Hinge on Tilt
