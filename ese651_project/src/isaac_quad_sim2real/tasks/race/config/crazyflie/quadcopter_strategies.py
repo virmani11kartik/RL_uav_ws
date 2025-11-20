@@ -423,9 +423,9 @@ class DefaultQuadcopterStrategy:
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "lap_time": lap_time_reward * self.env.rew['lap_time_reward_scale'],
                 "speed": speed_reward * self.env.rew['speed_reward_scale'],
-                "straight_bonus": straight_bonus * self.env.rew.get('straight_bonus_scale', 1.0),
-                "time_penalty": time_penalty * self.env.rew.get('time_penalty_scale', 1.0),
-                "crash": -crash_penalty * self.env.rew['crash_reward_scale']
+                "straight_bonus": straight_bonus * self.env.rew.get('straight_bonus_reward_scale', 1.0),
+                "time_penalty": time_penalty * self.env.rew.get('time_penalty_reward_scale', 1.0),
+                "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 # "backward": backward_motion * self.env.rew['backward_reward_scale']
                 # "step": step_penalty * self.env.rew["step_reward_scale"],

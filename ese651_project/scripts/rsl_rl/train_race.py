@@ -139,11 +139,11 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
 
     #step_reward_scale = 4.0
 
-    time_penalty_scale = 4.0 
+    time_penalty_reward_scale = 4.0 
     lap_time_reward_scale = 5.0
 
     speed_reward_scale = 1.5 
-    straight_bonus_scale = 0.5
+    straight_bonus_reward_scale = 0.5
 
     # Assemble rewards dictionary
     rewards = {
@@ -158,8 +158,8 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost,
         # 'backward_reward_scale': backward_reward_scale,
-        'time_penalty_scale': time_penalty_scale,
-        'straight_bonus_scale': straight_bonus_scale,
+        'time_penalty_reward_scale': time_penalty_reward_scale,
+        'straight_bonus_reward_scale': straight_bonus_reward_scale,
         'lap_time_reward_scale': lap_time_reward_scale,
         'speed_reward_scale': speed_reward_scale
     }
