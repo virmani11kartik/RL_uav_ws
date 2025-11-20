@@ -35,12 +35,21 @@ class DefaultQuadcopterStrategy:
         self.cfg = env.cfg
 
         # Initialize episode sums for logging if in training mode
+        # Initialize episode sums for logging if in training mode
+        # Initialize episode sums for logging if in training mode
         if self.cfg.is_train and hasattr(env, 'rew'):
             keys = [key.split("_reward_scale")[0] for key in env.rew.keys() if key != "death_cost"]
+            # ADD ALL MISSING KEYS that appear in your rewards dictionary
+            missing_keys = ['time_penalty', 'straight_bonus', 'forward_tilt']  # Add any others you're using
+            for key in missing_keys:
+                if key not in keys:
+                    keys.append(key)
+            
             self._episode_sums = {
                 key: torch.zeros(self.num_envs, dtype=torch.float, device=self.device)
                 for key in keys
             }
+
 
         # Lap timing initialization
         self._last_lap_time = torch.zeros(self.num_envs, device=self.device)
@@ -206,18 +215,50 @@ class DefaultQuadcopterStrategy:
         # Encourage high speeds on the long straight between gate 1 and 2 (7m drop)
 
 
-        speed_bonus = torch.zeros(self.num_envs, device=self.device)  
-        if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
-            straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
-            speed = torch.linalg.norm(vel_w, dim=1)
+        # speed_bonus = torch.zeros(self.num_envs, device=self.device)  
+        # if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
+        #     straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
+        #     speed = torch.linalg.norm(vel_w, dim=1)
             
-            # Only activate after 2500 iterations
-            if self.env.iteration >= 2500:
-                # Reward for speeds above 12 m/s, penalty for speeds below
-                speed_excess = speed - 12.0  # Positive above 12, negative below 12
-                speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
+        #     # Only activate after 2500 iterations
+        #     if self.env.iteration >= 2500:
+        #         # Reward for speeds above 12 m/s, penalty for speeds below
+        #         speed_excess = speed - 12.0  # Positive above 12, negative below 12
+        #         speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
                 
-                speed_bonus = speed_excess * straight_mask.float()
+        #         speed_bonus = speed_excess * straight_mask.float()
+
+
+        # ==================== PROGRESSIVE SPEED REWARD ====================
+        # Curriculum: Start low (5 m/s), gradually increase to racing speeds (9+ m/s)
+        # Progressive target speed
+        if self.env.iteration < 800:         # Phase 1
+            target_speed = 6.0
+        elif self.env.iteration < 1600:       # Phase 2
+            target_speed = 8.0
+
+        # Add intermediate phase
+        elif self.env.iteration < 2000:       # Phase 2.5
+            target_speed = 10.0
+        elif self.env.iteration < 2400:       # Phase 3
+            target_speed = 12.0
+
+        elif self.env.iteration < 2800:       # Phase 3
+            target_speed = 15.0
+        else:                                 # Phase 4 (final)
+            target_speed = 18.0
+
+        speed = torch.linalg.norm(vel_w, dim=1)
+
+        # Reward only positive excess speed
+        speed_excess = torch.clamp(speed - target_speed, 0.0, 8.0)
+
+        speed_reward = speed_excess * 0.1
+
+
+        # Optional: Extra bonus on straights (gate 1-2)
+        # Calculate separate straight bonus
+        straight_bonus = ((self.env._idx_wp == 1) | (self.env._idx_wp == 2)).float() * speed_excess * 0.05
     
         
         # ==================== ORIENTATION ALIGNMENT ====================
@@ -244,8 +285,26 @@ class DefaultQuadcopterStrategy:
         #tilt_penalty = torch.clamp(torch.abs(roll) + torch.abs(pitch) - 0.6, 0.0, 2.0)
 
         ### Smoother Linear Tilt Pen
+        #tilt_mag = torch.abs(roll) + torch.abs(pitch)
+        #tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
+
+        # ADD THIS LINE - define drone_lin_vel_b
+        drone_lin_vel_b = self.env._robot.data.root_com_lin_vel_b
+
+        # ----- Curriculum-based Forward Tilt Reward -----
         tilt_mag = torch.abs(roll) + torch.abs(pitch)
-        tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
+        
+        if self.env.iteration < 1200:
+            # Reward only forward (nose-down) tilt, in the useful acceleration band
+            forward_tilt = torch.clamp(-pitch, 0.2, 0.75) - 0.1
+            forward_tilt_reward = 0.3 * forward_tilt * torch.clamp(drone_lin_vel_b[:, 0], 0.0)
+            tilt_penalty = torch.clamp(tilt_mag - 0.6, 0.0) * 2.0
+        else:
+            forward_tilt_reward = torch.zeros_like(pitch)
+            tilt_penalty = torch.clamp(tilt_mag - 0.6, 0.0) * 3.0
+
+        # ----- Always-active Tilt Penalty (safety & stability) -----
+        
 
 
         # Quadratic Hinge on Tilt
@@ -275,8 +334,15 @@ class DefaultQuadcopterStrategy:
         # tilt_penalty = tilt_excess * speed_factor
                 
         # Penalize excessive angular velocities (encourage smooth control)
-        ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
-        
+        #ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
+        drone_ang_vel_b = self.env._robot.data.root_ang_vel_b
+        # ----- Curriculum-based Angular Velocity Penalty -----
+        if self.env.iteration < 1200:  # 
+            ang_vel_penalty = torch.zeros_like(drone_ang_vel_b[:, 0])
+        else:
+            # Gradually reintroduce penalty after curriculum phase
+            ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.08
+                
         # ==================== CRASH DETECTION ====================
         # Detect crashes using contact sensor
         contact_forces = self.env._contact_sensor.data.net_forces_w
@@ -299,6 +365,12 @@ class DefaultQuadcopterStrategy:
         # ========================= LAP TIME =========================
         # Giving penalty for Per-step time cost, Add a small negative reward every step.
         #step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
+
+        # ----- Time Penalty (Encourage Aggressive Racing) -----
+        if self.env.iteration > 1500:  # Only after basic control is learned
+            time_penalty = -0.0055 * torch.ones(self.num_envs, device=self.device)
+        else:
+            time_penalty = torch.zeros(self.num_envs, device=self.device)
 
 
         # ==================== LAP TIME REWARD ====================
@@ -346,10 +418,13 @@ class DefaultQuadcopterStrategy:
                 "velocity_forward": velocity_reward * self.env.rew['velocity_forward_reward_scale'],
                 "gate_pass": gate_pass_bonus * self.env.rew['gate_pass_reward_scale'],
                 # "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
+                "forward_tilt": forward_tilt_reward * self.env.rew.get('forward_tilt_reward_scale', 1.0),
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
                 "lap_time": lap_time_reward * self.env.rew['lap_time_reward_scale'],
-                "speed": speed_bonus * self.env.rew['speed_reward_scale'],
+                "speed": speed_reward * self.env.rew['speed_reward_scale'],
+                "straight_bonus": straight_bonus * self.env.rew.get('straight_bonus_scale', 1.0),
+                "time_penalty": time_penalty * self.env.rew.get('time_penalty_scale', 1.0),
                 "crash": -crash_penalty * self.env.rew['crash_reward_scale']
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 # "backward": backward_motion * self.env.rew['backward_reward_scale']

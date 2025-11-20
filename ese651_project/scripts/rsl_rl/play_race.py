@@ -152,25 +152,35 @@ def main():
     # =======================================================================
 
     timestep = 0
+    # Initialize previous index on first loop
+    previous_idx_wp = env.unwrapped._idx_wp.clone()
+
     while simulation_app.is_running():
         with torch.inference_mode():
             actions = policy(obs)
-            obs, rewards, dones, infos = env.step(actions)
+            obs, rew, dones, infos = env.step(actions)
 
             if hasattr(obs, "get"):
                 obs = obs["policy"]
 
-            # ------------------- SIMPLE GATE 0 PASSING TRACKING -------------------
+            # ------------------- LAP COMPLETION TRACKING (cross Gate 0 again) -------------------
             current_idx_wp = env.unwrapped._idx_wp.clone()
+            num_gates = len(env.unwrapped._waypoints)  # 6 for 'complex'
 
-            # Detect when drone just passed gate 0
             for env_idx in range(env.num_envs):
-                if current_idx_wp[env_idx] == 0 and previous_idx_wp[env_idx] != 0:
-                    # Just passed gate 0!
-                    print(f"Timestep {timestep} | Gate 0 PASSED!")
+                # Did we just pass Gate 0? → target changed from 0 → 1
+                if (current_idx_wp[env_idx] == 1 and previous_idx_wp[env_idx] == 0):
+                    total_gates_passed = env.unwrapped._n_gates_passed[env_idx].item()
+                    
+                    # Only count laps after the first crossing of gate 0 (start line)
+                    if total_gates_passed >= (num_gates + 1):
+                        lap_number = total_gates_passed // num_gates
+                        current_time = env.unwrapped.episode_length_buf[env_idx].item() * env.unwrapped.cfg.sim.dt * env.unwrapped.cfg.decimation
+                        print(f"Timestep {timestep:5d} | Env {env_idx:3d} | "
+                            f"*** LAP {lap_number} COMPLETED! *** | Time: {current_time:.3f}s")
 
             previous_idx_wp = current_idx_wp.clone()
-            # ----------------------------------------------------------------------
+            # -----------------------------------------------------------------------------------
 
             timestep += 1
             if args_cli.video and timestep >= args_cli.video_length:

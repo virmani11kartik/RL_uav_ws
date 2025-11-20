@@ -129,16 +129,21 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     ang_vel_reward_scale = 0.04               # Penalize excessive angular velocity
     height_reward_scale = 0.3                 # Penalize deviating from target height
 
+    forward_tilt_reward_scale = 1.0  # Add this line
+
     # Safety (high penalty)
     crash_reward_scale = 6.0                  # Penalty for crashing
     death_cost = -50.0                        # Large penalty for episode termination
 
-    backward_reward_scale = 0.2#1.5
+    #backward_reward_scale = 0.2#1.5
 
-    step_reward_scale = 4.0
+    #step_reward_scale = 4.0
+
+    time_penalty_scale = 4.0 
     lap_time_reward_scale = 5.0
 
     speed_reward_scale = 1.5 
+    straight_bonus_scale = 0.5
 
     # Assemble rewards dictionary
     rewards = {
@@ -147,12 +152,14 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'velocity_forward_reward_scale': velocity_forward_reward_scale,
         # 'heading_alignment_reward_scale': heading_alignment_reward_scale,
         'tilt_reward_scale': tilt_reward_scale,
+        'forward_tilt_reward_scale': forward_tilt_reward_scale,  # Add this line
         'ang_vel_reward_scale': ang_vel_reward_scale,
         # 'height_reward_scale': height_reward_scale,
         'crash_reward_scale': crash_reward_scale,
         'death_cost': death_cost,
         # 'backward_reward_scale': backward_reward_scale,
-        # 'step_reward_scale': step_reward_scale,
+        'time_penalty_scale': time_penalty_scale,
+        'straight_bonus_scale': straight_bonus_scale,
         'lap_time_reward_scale': lap_time_reward_scale,
         'speed_reward_scale': speed_reward_scale
     }
