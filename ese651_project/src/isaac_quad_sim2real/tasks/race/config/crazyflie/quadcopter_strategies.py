@@ -142,7 +142,7 @@ class DefaultQuadcopterStrategy:
                 #   lap_time < 6.2 → positive
                 #   lap_time = 6.2 → zero
                 #   lap_time > 6.2 → negative
-                target_lap_time = 5.8
+                target_lap_time = 6.0
                 lap_time_reward[lap_done_envs] = target_lap_time - lap_times
 
                 # Update last lap time for these envs
@@ -195,7 +195,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 20.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 80.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -549,6 +549,7 @@ class DefaultQuadcopterStrategy:
             # Randomize starting position relative to gate
             # Position behind the gate with some variation
             x_local = torch.empty(n_reset, device=self.device).uniform_(-3.0, -1.0)  # 1-3m behind
+            y_local = torch.empty(n_reset, device=self.device).uniform_(-1.0, 1.0)   # Lateral variation
             y_local = torch.empty(n_reset, device=self.device).uniform_(-1.0, 1.0)   # Lateral variation
             z_local = torch.empty(n_reset, device=self.device).uniform_(-0.3, 0.3)   # Vertical variation
             
