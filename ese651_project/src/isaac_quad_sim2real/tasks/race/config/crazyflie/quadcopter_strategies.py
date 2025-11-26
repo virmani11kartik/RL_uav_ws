@@ -89,8 +89,8 @@ class DefaultQuadcopterStrategy:
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.60) &  # Y within gate width
-            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.60)    # Z within gate height
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 1]) < 0.20) &  # Y within gate width
+            (torch.abs(self.env._pose_drone_wrt_gate[:, 2]) < 0.20)    # Z within gate height
         )
         
         # Check if drone was previously behind the gate
