@@ -195,7 +195,7 @@ class DefaultQuadcopterStrategy:
         # Dot product of velocity with direction to gate
         vel_w = self.env._robot.data.root_com_lin_vel_w
         velocity_towards_gate = torch.sum(vel_w * drone_to_gate_vec_normalized, dim=1)
-        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 40.0)  # Encourage speeds up to 6 m/s
+        velocity_reward = torch.clamp(velocity_towards_gate, -1.0, 15.0)  # Encourage speeds up to 6 m/s
 
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
@@ -298,7 +298,7 @@ class DefaultQuadcopterStrategy:
 
         # ========================= LAP TIME =========================
         # Giving penalty for Per-step time cost, Add a small negative reward every step.
-        #step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
+        step_penalty = -0.005 * torch.ones(self.num_envs, device=self.device)
 
 
         # ==================== LAP TIME REWARD ====================
@@ -348,12 +348,12 @@ class DefaultQuadcopterStrategy:
                 # "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
                 "tilt": -tilt_penalty * self.env.rew['tilt_reward_scale'],
                 "ang_vel": -ang_vel_penalty * self.env.rew['ang_vel_reward_scale'],
-                "lap_time": lap_time_reward * self.env.rew['lap_time_reward_scale'],
-                "speed": speed_bonus * self.env.rew['speed_reward_scale'],
-                "crash": -crash_penalty * self.env.rew['crash_reward_scale']
+                # "lap_time": lap_time_reward * self.env.rew['lap_time_reward_scale'],
+                # "speed": speed_bonus * self.env.rew['speed_reward_scale'],
+                "crash": -crash_penalty * self.env.rew['crash_reward_scale'],
                 # "height": -height_penalty * self.env.rew['height_reward_scale'],
                 # "backward": backward_motion * self.env.rew['backward_reward_scale']
-                # "step": step_penalty * self.env.rew["step_reward_scale"],
+                "step": step_penalty * self.env.rew["step_reward_scale"],
                 # "lap_bonus": lap_bonus * self.env.rew['lap_bonus_reward_scale'],
             }
             
