@@ -212,7 +212,7 @@ class DefaultQuadcopterStrategy:
             speed = torch.linalg.norm(vel_w, dim=1)
             
             # Only activate after 2500 iterations
-            if self.env.iteration >= 1500:
+            if self.env.iteration >= 2000:
                 # Reward for speeds above 12 m/s, penalty for speeds below
                 speed_excess = speed - 12.0  # Positive above 12, negative below 12
                 speed_excess = torch.clamp(speed_excess, -6.0, 6.0)  # Limit range: -6 to +6
@@ -609,7 +609,6 @@ class DefaultQuadcopterStrategy:
             # Randomize starting position relative to gate
             # Position behind the gate with some variation
             x_local = torch.empty(n_reset, device=self.device).uniform_(-3.0, -1.0)  # 1-3m behind
-            y_local = torch.empty(n_reset, device=self.device).uniform_(-1.0, 1.0)   # Lateral variation
             y_local = torch.empty(n_reset, device=self.device).uniform_(-1.0, 1.0)   # Lateral variation
             z_local = torch.empty(n_reset, device=self.device).uniform_(-0.3, 0.3)   # Vertical variation
             
