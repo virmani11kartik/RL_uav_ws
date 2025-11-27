@@ -10,6 +10,8 @@
 import sys
 import os
 
+print(sys.path)
+
 local_rsl_path = os.path.abspath("src/third_parties/rsl_rl_local")
 if os.path.exists(local_rsl_path):
     sys.path.insert(0, local_rsl_path)
@@ -72,7 +74,7 @@ from isaaclab_tasks.utils.hydra import hydra_task_config
 from isaaclab_rl.rsl_rl import RslRlOnPolicyRunnerCfg, RslRlVecEnvWrapper
 
 # Import extensions to set up environment tasks
-import src.isaac_quad_sim2real.tasks   # noqa: F401
+import  src.isaac_quad_sim2real.tasks   # noqa: F401
 
 torch.backends.cuda.matmul.allow_tf32 = True
 torch.backends.cudnn.allow_tf32 = True
@@ -156,7 +158,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         # 'backward_reward_scale': backward_reward_scale,
         # 'step_reward_scale': step_reward_scale,
         'lap_time_reward_scale': lap_time_reward_scale,
-        # 'speed_reward_scale': speed_reward_scale
+        'speed_reward_scale': speed_reward_scale
     }
 
     # TODO ----- END -----
