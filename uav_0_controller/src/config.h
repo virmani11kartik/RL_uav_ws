@@ -12,12 +12,34 @@
 // ============================================================
 #ifdef BUILD_TX
 
-// -------- TX Communication --------
-#define RC_SEND_FREQUENCY_HZ 100       // Options: 50, 100, 150, 250, 500 Hz
-#define HEARTBEAT_INTERVAL 500         // Heartbeat interval in ms (2 Hz)
-#define STATS_INTERVAL 1000            // Statistics print interval in ms
+// -------- Control Mode Selection --------
+// Set TX_CONTROL_MODE to :
+// 1 - for the web-based Quad Controller UI
+// 0 - to drive the transmitter using the IMU + potentiometer hardware.
+#define TX_CONTROL_MODE 1
 
-// Note: TX now uses web-based control via WiFi AP "Quad Controller"
+#if TX_CONTROL_MODE != 0 && TX_CONTROL_MODE != 1
+  #error "TX_CONTROL_MODE must be 0 (IMU) or 1 (Web)"
+#endif
+
+// -------- TX Communication --------
+#define RC_SEND_FREQUENCY_HZ 100        // Options: 50, 100, 150, 250, 500 Hz
+#define HEARTBEAT_INTERVAL 500          // Heartbeat interval in ms (2 Hz)
+#define STATS_INTERVAL 1000             // Statistics print interval in ms
+
+#if TX_CONTROL_MODE == 0
+// -------- IMU & Potentiometer Configuration --------
+#define IMU_TYPE_MPU6050 0
+#define IMU_TYPE_BNO085 1
+#define IMU_TYPE IMU_TYPE_BNO085         // Choose default IMU type
+#define IMU_SDA_PIN 4
+#define IMU_SCL_PIN 5
+#define ROLL_SENSITIVITY 45.0            // Tilt degrees for full deflection
+#define PITCH_SENSITIVITY 45.0           // Tilt degrees for full deflection
+#define YAW_SENSITIVITY 45.0             // Rotation degrees for full deflection
+#define THROTTLE_POT_PIN 0               // GPIO pin for throttle potentiometer
+#define POT_CALIBRATION_SAMPLES 50       // Samples per calibration step
+#endif
 
 #endif // BUILD_TX
 
@@ -77,8 +99,8 @@
 #define ENABLE_DEBUG_OUTPUT false      // true = USB debug messages, false = production mode
 
 // -------- RX Communication --------
-#define TELEMETRY_SEND_INTERVAL 100    // Telemetry send interval in ms (10 Hz)
-#define STATS_INTERVAL 1000            // Statistics print interval in ms
+#define RX_TELEMETRY_SEND_INTERVAL_MS 100    // Telemetry send interval in ms (10 Hz)
+#define RX_STATS_INTERVAL_MS 1000            // Statistics print interval in ms
 
 #endif // BUILD_RX
 

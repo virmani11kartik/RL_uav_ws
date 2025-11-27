@@ -3,12 +3,18 @@
 
 #include <Arduino.h>
 #include "protocol.h"
+#include "config.h"
 
 #ifdef BUILD_TX
+#include <Adafruit_NeoPixel.h>
+#if TX_CONTROL_MODE == 1
 #include <WiFi.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
-#include <Adafruit_NeoPixel.h>
+#endif
+#if TX_CONTROL_MODE == 0
+#include "imu_handler.h"
+#endif
 #endif
 
 // Build mode check
@@ -17,6 +23,7 @@
 #endif
 
 #ifdef BUILD_TX
+#if TX_CONTROL_MODE == 1
 // ============================================================
 // TRANSMITTER (TX) CODE - Web-Based Control
 // ============================================================
@@ -97,8 +104,6 @@ const unsigned long TX_RX_FAILURE_THRESHOLD_MS = 2000;  // Show orange only afte
 const unsigned long TX_RX_FAILURE_COUNT_THRESHOLD = 10;  // Or after 10 consecutive failures
 
 const unsigned long RC_SEND_INTERVAL = 1000 / RC_SEND_FREQUENCY_HZ;
-const unsigned long HEARTBEAT_INTERVAL = 500;   // 2 Hz
-const unsigned long STATS_INTERVAL = 1000;       // 1 Hz
 const unsigned long ERROR_PRINT_INTERVAL = 1000;
 
 // HTML page with virtual joysticks
@@ -1186,6 +1191,335 @@ void loop() {
   delay(1);
 }
 
+#elif TX_CONTROL_MODE == 0
+// ============================================================
+// TRANSMITTER (TX) CODE - IMU + Potentiometer Control
+// ============================================================
+
+// NeoPixel LED Configuration
+#define LED_PIN 2
+#define LED_COUNT 1
+#define LED_BRIGHTNESS 255
+
+// LED Status Colors
+#define COLOR_RED 0xFF0000
+#define COLOR_ORANGE 0xFF6600
+#define COLOR_YELLOW 0xFFFF00
+#define COLOR_GREEN 0x00FF00
+#define COLOR_CYAN 0x00FFFF
+
+Adafruit_NeoPixel led = Adafruit_NeoPixel(LED_COUNT, LED_PIN, NEO_GRB + NEO_KHZ800);
+
+uint32_t currentColor = COLOR_RED;
+uint32_t targetColor = COLOR_RED;
+unsigned long lastColorUpdateMs = 0;
+unsigned long lastLedUpdateMs = 0;
+const unsigned long COLOR_TRANSITION_TIME = 500;
+
+bool systemError = false;
+bool wifiOk = true;
+bool txRxOk = false;
+bool deviceConnected = true;
+bool userActive = true;
+
+unsigned long lastRcSendMs = 0;
+unsigned long lastHeartbeatMs = 0;
+unsigned long lastStatsMs = 0;
+unsigned long lastTxErrorMs = 0;
+
+unsigned long lastSuccessfulSendMs = 0;
+unsigned long consecutiveFailures = 0;
+const unsigned long TX_RX_FAILURE_THRESHOLD_MS = 2000;
+const unsigned long TX_RX_FAILURE_COUNT_THRESHOLD = 10;
+
+uint8_t receiverMac[6] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF};
+
+uint16_t rcChannels[16] = {
+  992, 992, 172, 992, 992, 992, 992, 992,
+  992, 992, 992, 992, 992, 992, 992, 992
+};
+
+const unsigned long RC_SEND_INTERVAL = 1000 / RC_SEND_FREQUENCY_HZ;
+const unsigned long ERROR_PRINT_INTERVAL = 1000;
+
+IMUHandler imu;
+int potMinValue = 0;
+int potMaxValue = 4095;
+bool potCalibrated = false;
+
+uint32_t blendColor(uint32_t color1, uint32_t color2, float ratio) {
+  ratio = constrain(ratio, 0.0f, 1.0f);
+  uint8_t r1 = (color1 >> 16) & 0xFF;
+  uint8_t g1 = (color1 >> 8) & 0xFF;
+  uint8_t b1 = color1 & 0xFF;
+  uint8_t r2 = (color2 >> 16) & 0xFF;
+  uint8_t g2 = (color2 >> 8) & 0xFF;
+  uint8_t b2 = color2 & 0xFF;
+
+  uint8_t r = (uint8_t)(r1 + (r2 - r1) * ratio);
+  uint8_t g = (uint8_t)(g1 + (g2 - g1) * ratio);
+  uint8_t b = (uint8_t)(b1 + (b2 - b1) * ratio);
+
+  return (r << 16) | (g << 8) | b;
+}
+
+void updateLED() {
+  unsigned long now = millis();
+  bool txRxContinuouslyFailing = false;
+
+  if (txRxOk) {
+    consecutiveFailures = 0;
+    lastSuccessfulSendMs = now;
+  } else {
+    unsigned long timeSinceLastSuccess = now - lastSuccessfulSendMs;
+    if (timeSinceLastSuccess > TX_RX_FAILURE_THRESHOLD_MS ||
+        consecutiveFailures > TX_RX_FAILURE_COUNT_THRESHOLD) {
+      txRxContinuouslyFailing = true;
+    }
+  }
+
+  if (systemError || !wifiOk) {
+    targetColor = COLOR_RED;
+  } else if (txRxContinuouslyFailing) {
+    targetColor = COLOR_ORANGE;
+  } else if (!deviceConnected) {
+    targetColor = COLOR_YELLOW;
+  } else if (userActive) {
+    targetColor = COLOR_CYAN;
+  } else {
+    targetColor = COLOR_GREEN;
+  }
+
+  if (targetColor != currentColor) {
+    float elapsed = (float)(now - lastColorUpdateMs);
+    float ratio = elapsed / (float)COLOR_TRANSITION_TIME;
+    if (ratio >= 1.0f) {
+      currentColor = targetColor;
+    } else {
+      currentColor = blendColor(currentColor, targetColor, ratio);
+    }
+    if (ratio >= 1.0f) {
+      lastColorUpdateMs = now;
+    }
+  } else {
+    lastColorUpdateMs = now;
+  }
+
+  led.setPixelColor(0, currentColor);
+  led.setBrightness(LED_BRIGHTNESS);
+  led.show();
+}
+
+void calibratePotentiometer() {
+  Serial.println("[TX] Calibrating potentiometer...");
+  Serial.println("     Please move the potentiometer to MIN position...");
+  int minVal = 4095;
+  int maxVal = 0;
+  delay(2000);
+  for (int i = 0; i < POT_CALIBRATION_SAMPLES; i++) {
+    int val = analogRead(THROTTLE_POT_PIN);
+    if (val < minVal) minVal = val;
+    if (val > maxVal) maxVal = val;
+    delay(20);
+  }
+
+  Serial.println("     Now move the potentiometer to MAX position...");
+  delay(2000);
+  for (int i = 0; i < POT_CALIBRATION_SAMPLES; i++) {
+    int val = analogRead(THROTTLE_POT_PIN);
+    if (val < minVal) minVal = val;
+    if (val > maxVal) maxVal = val;
+    delay(20);
+  }
+
+  potMinValue = minVal;
+  potMaxValue = maxVal;
+  potCalibrated = (potMaxValue > potMinValue);
+
+  Serial.printf("[TX] Pot calibration complete: MIN=%d MAX=%d\n", potMinValue, potMaxValue);
+  Serial.println();
+}
+
+void setup() {
+  Serial.begin(115200);
+  delay(1000);
+
+  Serial.println("\n\n=================================");
+  Serial.println("Custom Protocol Transmitter (TX)");
+  Serial.println("=================================\n");
+  Serial.println("[TX] IMU + Potentiometer Control Mode");
+  Serial.printf("[TX] RC commands: %d Hz | Heartbeat: 2 Hz | Stats: 1 Hz\n", RC_SEND_FREQUENCY_HZ);
+  Serial.println();
+
+  led.begin();
+  led.setPixelColor(0, 0);
+  led.show();
+  delay(100);
+  led.setPixelColor(0, COLOR_RED);
+  led.show();
+
+  if (!CustomProtocol_Init(true, receiverMac)) {
+    Serial.println("[TX] Protocol init failed!");
+    systemError = true;
+    txRxOk = false;
+    updateLED();
+    while (1) {
+      delay(1000);
+    }
+  } else {
+    txRxOk = true;
+    updateLED();
+  }
+
+  Serial.println("[TX] Initializing IMU...");
+  if (!imu.begin(IMU_SDA_PIN, IMU_SCL_PIN, static_cast<IMUType>(IMU_TYPE))) {
+    Serial.println("[TX] IMU initialization failed!");
+    systemError = true;
+    while (1) {
+      delay(1000);
+    }
+  }
+
+  if (IMU_TYPE == IMU_TYPE_BNO085) {
+    Serial.println("[TX] IMU Type: BNO085 (sensor fusion)");
+  } else {
+    Serial.println("[TX] IMU Type: MPU6050 (gyro + accel)");
+  }
+
+  imu.setRollSensitivity(ROLL_SENSITIVITY);
+  imu.setPitchSensitivity(PITCH_SENSITIVITY);
+  imu.setYawSensitivity(YAW_SENSITIVITY);
+
+  pinMode(THROTTLE_POT_PIN, INPUT);
+  calibratePotentiometer();
+
+  wifiOk = true;
+  deviceConnected = true;
+  userActive = true;
+
+  Serial.println("[TX] All controls initialized!");
+  Serial.println();
+}
+
+void loop() {
+  unsigned long now = millis();
+  CustomProtocol_Update();
+
+  if (now - lastLedUpdateMs >= 20) {
+    lastLedUpdateMs = now;
+    updateLED();
+  }
+
+  if (now - lastRcSendMs >= RC_SEND_INTERVAL) {
+    lastRcSendMs = now;
+
+    imu.update();
+    float rollNormalized = imu.getRoll();
+    float pitchNormalized = imu.getPitch();
+    float yawNormalized = imu.getYaw();
+
+    int potValue = analogRead(THROTTLE_POT_PIN);
+    float throttleNormalized = 0.0f;
+    if (potCalibrated && (potMaxValue > potMinValue)) {
+      throttleNormalized = (float)(potValue - potMinValue) / (float)(potMaxValue - potMinValue);
+    } else {
+      throttleNormalized = (float)potValue / 4095.0f;
+    }
+    throttleNormalized = constrain(throttleNormalized, 0.0f, 1.0f);
+
+    rcChannels[0] = (uint16_t)(rollNormalized * 819.0f + 992.0f);
+    rcChannels[1] = (uint16_t)(pitchNormalized * 819.0f + 992.0f);
+    rcChannels[2] = (uint16_t)(172.0f + throttleNormalized * 1639.0f);
+    rcChannels[3] = (uint16_t)(yawNormalized * 819.0f + 992.0f);
+    rcChannels[4] = 992;
+    rcChannels[5] = 992;
+    rcChannels[6] = 992;
+
+    for (int i = 0; i < 16; i++) {
+      if (rcChannels[i] < 172) rcChannels[i] = 172;
+      if (rcChannels[i] > 1811) rcChannels[i] = 1811;
+    }
+
+    if (!CustomProtocol_SendRcCommand(rcChannels)) {
+      txRxOk = false;
+      consecutiveFailures++;
+      if (now - lastTxErrorMs >= ERROR_PRINT_INTERVAL) {
+        Serial.println("[TX] Failed to send RC command (rate-limited errors)");
+        lastTxErrorMs = now;
+      }
+    } else {
+      txRxOk = true;
+      consecutiveFailures = 0;
+      lastSuccessfulSendMs = now;
+    }
+
+    userActive = true;
+  }
+
+  if (now - lastHeartbeatMs >= HEARTBEAT_INTERVAL) {
+    lastHeartbeatMs = now;
+    CustomProtocol_SendHeartbeat();
+  }
+
+  if (now - lastStatsMs >= STATS_INTERVAL) {
+    lastStatsMs = now;
+
+    ProtocolStats stats;
+    CustomProtocol_GetStats(&stats);
+
+    Serial.println("\n--- TX Statistics ---");
+    Serial.printf("Packets Sent: %lu | Received: %lu | Loss: %.1f%%\n",
+                  stats.packetsSent, stats.packetsReceived, stats.packetLossPercent);
+    Serial.printf("Link: %s | Last RX: %lu ms ago\n",
+                  stats.linkActive ? "ACTIVE" : "DOWN", stats.lastPacketMs);
+
+    if (stats.packetsReceived > 0) {
+      TelemetryPayload telemetry;
+      CustomProtocol_GetTelemetry(&telemetry);
+      if (telemetry.voltage > 0.1) {
+        Serial.printf("Battery: %.2fV ", telemetry.voltage);
+      } else {
+        Serial.print("Battery: N/A ");
+      }
+      if (telemetry.current > 0.1) {
+        Serial.printf("%.2fA | ", telemetry.current);
+      } else {
+        Serial.print("N/A | ");
+      }
+      Serial.printf("RSSI: %ddBm | LQ: %d%%\n",
+                    telemetry.rssi, telemetry.linkQuality);
+    }
+
+    float rollAngle, pitchAngle, yawAngle;
+    imu.getAngles(rollAngle, pitchAngle, yawAngle);
+
+    int potValue = analogRead(THROTTLE_POT_PIN);
+    float throttleNormalized = 0.0f;
+    if (potCalibrated && (potMaxValue > potMinValue)) {
+      throttleNormalized = (float)(potValue - potMinValue) / (float)(potMaxValue - potMinValue);
+    } else {
+      throttleNormalized = (float)potValue / 4095.0f;
+    }
+    throttleNormalized = constrain(throttleNormalized, 0.0f, 1.0f);
+
+    Serial.printf("IMU Angles (°): Roll:%.1f Pitch:%.1f Yaw:%.1f | Normalized: R:%.2f P:%.2f Y:%.2f\n",
+                  rollAngle, pitchAngle, yawAngle, imu.getRoll(), imu.getPitch(), imu.getYaw());
+    Serial.printf("Pot ADC: %d (min:%d max:%d) | Throttle: %.2f (%.1f%%)\n",
+                  potValue, potMinValue, potMaxValue, throttleNormalized, throttleNormalized * 100.0f);
+    Serial.printf("RC Channels: R:%d P:%d T:%d Y:%d | AUX1:%d AUX2:%d AUX3:%d\n",
+                  rcChannels[0], rcChannels[1], rcChannels[2], rcChannels[3],
+                  rcChannels[4], rcChannels[5], rcChannels[6]);
+    Serial.println();
+  }
+
+  delay(1);
+}
+
+
+#else
+#error "TX_CONTROL_MODE must be 0 (IMU) or 1 (Web)."
+#endif // TX control mode
+
 #endif // BUILD_TX
 
 #ifdef BUILD_RX
@@ -1217,8 +1551,8 @@ unsigned long lastCrsfUpdateMs = 0;
 unsigned long lastLedToggleMs = 0;
 
 const unsigned long CRSF_OUTPUT_INTERVAL = 1000 / CRSF_OUTPUT_FREQUENCY_HZ;
-const unsigned long TELEMETRY_SEND_INTERVAL = 100;
-const unsigned long STATS_INTERVAL = 1000;
+const unsigned long TELEMETRY_SEND_INTERVAL = RX_TELEMETRY_SEND_INTERVAL_MS;
+const unsigned long STATS_INTERVAL = RX_STATS_INTERVAL_MS;
 const unsigned long ERROR_PRINT_INTERVAL = 1000;
 
 bool ledState = false;
