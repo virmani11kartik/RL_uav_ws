@@ -130,8 +130,13 @@ class DefaultQuadcopterStrategy:
 
                 lap_times = current_time[lap_done_envs] - self._last_lap_time[lap_done_envs]
 
-                target_lap_time = 5.0
-                lap_time_reward[lap_done_envs] = target_lap_time - lap_times
+                min_lap_time = 3.0   # don't reward anything faster than this more
+                max_lap_time = 12.0  # anything slower than this is equally bad
+                lap_times_clipped = torch.clamp(lap_times, min=min_lap_time, max=max_lap_time)
+                target_lap_time = 6.0
+                scale_factor = 2.0
+                lap_time_reward_raw = (target_lap_time - lap_times_clipped) * scale_factor
+                lap_time_reward[lap_done_envs] = torch.clamp(lap_time_reward_raw, -6.0, 6.0)
 
                 # Update last lap time for these envs
                 self._last_lap_time[lap_done_envs] = current_time[lap_done_envs]
@@ -282,7 +287,7 @@ class DefaultQuadcopterStrategy:
         # ==================== COMPUTE FINAL REWARD ====================
         if self.cfg.is_train:
             rewards = {
-                "progress_gate": progress_to_gate * self.env.rew['progress_gate_reward_scale'],
+                # "progress_gate": progress_to_gate * self.env.rew['progress_gate_reward_scale'],
                 "velocity_forward": velocity_reward * self.env.rew['velocity_forward_reward_scale'],
                 "gate_pass": gate_pass_bonus * self.env.rew['gate_pass_reward_scale'],
                 # "heading_alignment": heading_reward * self.env.rew['heading_alignment_reward_scale'],
