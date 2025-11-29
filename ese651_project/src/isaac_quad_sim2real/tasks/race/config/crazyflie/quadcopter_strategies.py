@@ -85,7 +85,7 @@ class DefaultQuadcopterStrategy:
         dist_to_gate_center = torch.linalg.norm(self.env._pose_drone_wrt_gate, dim=1)
         
         # Check if drone crossed the gate plane (positive x in gate frame means passed)
-        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.18
+        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.20
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
@@ -145,7 +145,7 @@ class DefaultQuadcopterStrategy:
                 # target_lap_time = 6.0
                 base_target = 6.0       # starting target
                 min_target = 4.8        # don't go below this (safety floor)
-                start_iter = 1000       # start curriculum after this many iterations
+                start_iter = 2000       # start curriculum after this many iterations
                 phase_len = 500         # decrease target every 500 iterations
                 scale_factor = 2.0
                 iteration = int(self.env.iteration)
@@ -159,6 +159,13 @@ class DefaultQuadcopterStrategy:
                 lap_time_reward_raw = (target_lap_time - lap_times_clipped) * scale_factor
                 lap_time_reward[lap_done_envs] = torch.clamp(lap_time_reward_raw, -6.0, 6.0)
                 # lap_time_reward[lap_done_envs] = target_lap_time - lap_times
+
+                # how much we beat the target by (only positive if faster)
+                # improvement = torch.clamp(target_lap_time - lap_times_clipped, min=0.0)
+                # lap_time_reward_raw = improvement * scale_factor  # e.g. scale_factor = 2.0
+
+                # no negatives – either 0 (too slow) or positive (fast)
+                lap_time_reward[lap_done_envs] = lap_time_reward_raw
 
                 # Update last lap time for these envs
                 self._last_lap_time[lap_done_envs] = current_time[lap_done_envs]
@@ -228,6 +235,7 @@ class DefaultQuadcopterStrategy:
         # ==================== GATE 1-2 STRAIGHT SPEED BONUS ====================
         # Encourage high speeds on the long straight between gate 1 and 2 (7m drop)
 
+
         speed_bonus = torch.zeros(self.num_envs, device=self.device)  
         if torch.any(self.env._idx_wp == 1) or torch.any(self.env._idx_wp == 2):
             straight_mask = (self.env._idx_wp == 1) | (self.env._idx_wp == 2)
@@ -261,7 +269,7 @@ class DefaultQuadcopterStrategy:
         pitch = euler_tuple[1]
         
         tilt_mag = torch.abs(roll) + torch.abs(pitch)
-        tilt_penalty = torch.clamp(tilt_mag - 0.8, 0.0) * 2.0
+        tilt_penalty = torch.clamp(tilt_mag - 0.80, 0.0) * 2.0
                 
         ang_vel_penalty = torch.linalg.norm(self.env._robot.data.root_ang_vel_b, dim=1) * 0.1
         
