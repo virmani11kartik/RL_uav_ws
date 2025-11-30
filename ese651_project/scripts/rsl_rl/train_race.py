@@ -120,7 +120,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     # }
 
     progress_gate_reward_scale = 1.5         # Reward for getting closer to gate
-    gate_pass_reward_scale = 10.0             # Large bonus for passing through gate
+    gate_pass_reward_scale = 6.0             # Large bonus for passing through gate
     velocity_forward_reward_scale = 4.0#1.0       # Encourage fast forward motion
 
     # Orientation and navigation (medium weight)
@@ -141,7 +141,10 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     lap_time_reward_scale = 10.0
 
     speed_reward_scale = 1.5 
-    lap_bonus_reward_scale = 5.0
+    lap_bonus_reward_scale = 3.0
+    entry_angle_reward_scale = 4.0
+    velocity_next_reward_scale = 0.5
+    early_accel_reward_scale = 2.0
 
     # Assemble rewards dictionary
     rewards = {
@@ -160,6 +163,9 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'lap_time_reward_scale': lap_time_reward_scale,
         'speed_reward_scale': speed_reward_scale,
         'lap_bonus_reward_scale' : lap_bonus_reward_scale,
+        # 'entry_angle_reward_scale' : entry_angle_reward_scale,
+        # 'velocity_next_reward_scale' : velocity_next_reward_scale,
+        # 'early_accel_reward_scale': early_accel_reward_scale,
     }
 
     # TODO ----- END -----
