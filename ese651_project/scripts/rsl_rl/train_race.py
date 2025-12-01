@@ -144,6 +144,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
     lap_bonus_reward_scale = 3.0
     entry_angle_reward_scale = 4.0
     velocity_next_reward_scale = 0.5
+    early_accel_reward_scale = 2.0
 
     # Assemble rewards dictionary
     rewards = {
@@ -163,6 +164,7 @@ def main(env_cfg: ManagerBasedRLEnvCfg | DirectRLEnvCfg | DirectMARLEnvCfg, agen
         'lap_bonus_reward_scale' : lap_bonus_reward_scale,
         # 'entry_angle_reward_scale' : entry_angle_reward_scale,
         # 'velocity_next_reward_scale' : velocity_next_reward_scale,
+        # 'early_accel_reward_scale': early_accel_reward_scale,
     }
 
     # TODO ----- END -----

@@ -227,6 +227,14 @@ class DefaultQuadcopterStrategy:
         vel_tow_next = torch.sum(vel_w * next_gate_vec, dim=1)
         vel2_reward = torch.clamp(vel_tow_next, -1.0, 40.0)
 
+        # ==================== EARLY ACCELERATION BONUS ====================
+        no_lap_yet = (self._lap_counts == 0).float()
+        early_phase = (self.env.episode_length_buf < 400).float()
+        early_mask = no_lap_yet * early_phase
+
+        early_accel = torch.clamp(velocity_towards_gate, min=0.0, max=20.0)
+        early_accel_reward = early_mask * early_accel
+
         # Extra penalty for moving backwards relative to the current gate
         # backward_speed = torch.clamp(-velocity_towards_gate, min=0.0)  # only when < 0
         # backward_penalty = backward_speed  
@@ -314,6 +322,7 @@ class DefaultQuadcopterStrategy:
                 "lap_bonus": lap_bonus * self.env.rew['lap_bonus_reward_scale'],
                 # "entry_angle": entry_angle_reward * self.env.rew['entry_angle_reward_scale'],
                 # "velocity_next": vel2_reward * self.env.rew['velocity_next_reward_scale'],
+                # "early_accel": early_accel_reward * self.env.rew['early_accel_reward_scale'],
 
             }
             
@@ -600,7 +609,8 @@ class DefaultQuadcopterStrategy:
             default_root_state[:, 3:7] = quat
             
             # Add small initial velocity towards gate for more dynamic starts
-            initial_speed = torch.empty(n_reset, device=self.device).uniform_(0.0, 0.5)
+            # initial_speed = torch.empty(n_reset, device=self.device).uniform_(0.5, 2.0)
+            initial_speed = torch.empty(n_reset, device=self.device).uniform_(0.0, 0.2)
             vel_direction = torch.stack([
                 torch.cos(initial_yaw + yaw_noise),
                 torch.sin(initial_yaw + yaw_noise),
