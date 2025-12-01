@@ -85,7 +85,7 @@ class DefaultQuadcopterStrategy:
         dist_to_gate_center = torch.linalg.norm(self.env._pose_drone_wrt_gate, dim=1)
         
         # Check if drone crossed the gate plane (positive x in gate frame means passed)
-        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.20
+        crossed_gate_plane = self.env._pose_drone_wrt_gate[:, 0] < 0.18
         
         # Check if drone is within gate boundaries (laterally)
         within_gate_bounds = (
