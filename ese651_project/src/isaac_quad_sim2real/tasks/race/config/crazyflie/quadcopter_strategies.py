@@ -148,6 +148,9 @@ class DefaultQuadcopterStrategy:
                 #         target_lap_time = min_target
                 # else:
                 #     target_lap_time = base_target
+                # iteration = int(self.env.iteration)
+                # if iteration >= 1500:
+                #     scale_factor = 4.0
                 lap_time_reward_raw = (target_lap_time - lap_times_clipped) * scale_factor
                 lap_time_reward[lap_done_envs] = torch.clamp(lap_time_reward_raw, -6.0, 6.0)
                 # lap_time_reward[lap_done_envs] = target_lap_time - lap_times
@@ -685,8 +688,8 @@ class DefaultQuadcopterStrategy:
 
         # ----- TWR -----
         # factors: 0.95 to 1.05
-        twr_min = self.cfg.thrust_to_weight * 0.92
-        twr_max = self.cfg.thrust_to_weight * 1.08
+        twr_min = self.cfg.thrust_to_weight * 0.80
+        twr_max = self.cfg.thrust_to_weight * 1.05
         twr_samples = twr_min + r * (twr_max - twr_min)
         self.env._thrust_to_weight[env_ids] = twr_samples
 
