@@ -688,7 +688,7 @@ class DefaultQuadcopterStrategy:
 
         # ----- TWR -----
         # factors: 0.95 to 1.05
-        twr_min = self.cfg.thrust_to_weight * 0.80
+        twr_min = self.cfg.thrust_to_weight * 0.90
         twr_max = self.cfg.thrust_to_weight * 1.05
         twr_samples = twr_min + r * (twr_max - twr_min)
         self.env._thrust_to_weight[env_ids] = twr_samples
