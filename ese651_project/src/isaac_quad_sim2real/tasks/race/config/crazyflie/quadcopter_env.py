@@ -128,7 +128,7 @@ class GateModelCfg:
 @configclass
 class QuadcopterEnvCfg(DirectRLEnvCfg):
     use_wall = False
-    track_name = 'complex'
+    track_name = 'complex'  # 'complex', 'lemniscate', 'circle'
 
     # env
     episode_length_s = 30.0             # episode_length = episode_length_s / dt / decimation
@@ -274,7 +274,7 @@ class QuadcopterEnv(DirectRLEnv):
         self._crashed = torch.zeros(self.num_envs, device=self.device, dtype=torch.int)
 
         # Motor dynamics
-        self.cfg.thrust_to_weight = 3.15
+        self.cfg.thrust_to_weight = 3.10
         r = self.cfg.arm_length * np.sqrt(2.0) / 2.0
         self._rotor_positions = torch.tensor(
             [
@@ -421,6 +421,12 @@ class QuadcopterEnv(DirectRLEnv):
                 [ 0.0, 5.25, 1.50, 0.0, 0.0,  0.00],
                 [-2.0, 3.50, 0.75, 0.0, 0.0,  1.57],
             ]
+            # 'circle': [
+            #     [ 0.0, 3.0, 0.75, 0.0, 0.0,  0.00],
+            #     [-1.5, 4.5, 0.75, 0.0, 0.0, -1.57],
+            #     [ 0.0, 6.0, 1.75, 0.0, 0.0,  3.14],
+            #     [ 1.5, 4.5, 0.75, 0.0, 0.0,  1.57],
+            #     ]
         }
 
         self._waypoints = torch.tensor(tracks[self.cfg.track_name], device=self.device)
