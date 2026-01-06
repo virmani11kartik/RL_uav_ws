@@ -2,43 +2,71 @@
 #include <Adafruit_NeoPixel.h>
 
 #ifndef RGB_PIN
-#define RGB_PIN 21
+#define RGB_PIN 2
 #endif
 #define NUMPIXELS 1
 Adafruit_NeoPixel led(NUMPIXELS, RGB_PIN, NEO_GRB + NEO_KHZ800);
 
 //params
-static bool armed = true;
+static bool armed = false;
 
 // CRSF basics
 static const uint8_t CRSF_ADDR_FC = 0xC8; // Flight Controller address
 static const uint8_t CRSF_TYPE_RC = 0x16; // RC Channel Data packet type (16 channels each 11 bits)
 
 HardwareSerial CRSF(1); // Use UART1 for CRSF communication
-constexpr int FC_TX_PIN = 43; // ESP32 TX -> connects to FC RX (A10 for UART1)
-constexpr int FC_RX_PIN = 44; // ESP32 RX -> connects to FC TX (A9 for UART1)
+constexpr int FC_TX_PIN = 21; // ESP32 TX -> connects to FC RX (A10 for UART1)
+constexpr int FC_RX_PIN = 20; // ESP32 RX -> connects to FC TX (A9 for UART1)
 constexpr int CRSF_BAUDRATE = 420000; // CRSF baud rate
 
-// RC channel data
-static inline uint16_t clampCRSF(int v){
-    return (v < 172) ? 172 : (v > 1811) ? 1811 : (uint16_t)v;
+static inline uint16_t us_to_crsf_exact(int us)
+{
+  // Official CRSF range
+  constexpr int US_MIN = 988;
+  constexpr int US_MAX = 2012;
+  constexpr int CRSF_MIN = 172;
+  constexpr int CRSF_MAX = 1811;
+
+  // Clamp to valid CRSF range
+  if (us <= US_MIN) return CRSF_MIN;
+  if (us >= US_MAX) return CRSF_MAX;
+
+  // Exact linear mapping (rounded)
+  return (uint16_t)(
+    CRSF_MIN +
+    ( (int64_t)(us - US_MIN) * (CRSF_MAX - CRSF_MIN) + (US_MAX - US_MIN) / 2 )
+    / (US_MAX - US_MIN)
+  );
 }
-static inline uint16_t mid() { return 992; }
-static inline uint16_t thr_min() { return 172; }
-static inline uint16_t aux_low() { return 172; }
-static inline uint16_t aux_high() { return 1811; }
+
+// RC channel data
+static inline uint16_t mid() { return 1500; }
+static inline uint16_t thr_min() { return 885; }
+static inline uint16_t aux_low() { return 900; }
+static inline uint16_t aux_high() { return 2100; }
+static inline uint16_t custom() { return 1100; }
 
 uint16_t ch[16] = {
-  mid(),
-  mid(),
-  thr_min(),
-  mid(),
-  aux_low(),
-  mid(), mid(), mid(), mid(), mid(), mid(), mid(), mid(), mid(), mid(), mid()
+  us_to_crsf_exact(1500),//A
+  us_to_crsf_exact(1500),//E 
+  us_to_crsf_exact(885),//T
+  us_to_crsf_exact(1500),//R
+  us_to_crsf_exact(aux_low()),//AUX1
+  us_to_crsf_exact(1500),//
+  us_to_crsf_exact(1500),// 
+  us_to_crsf_exact(1500),// 
+  us_to_crsf_exact(1500),//
+  us_to_crsf_exact(1500),
+  us_to_crsf_exact(1500), 
+  us_to_crsf_exact(1500),
+  us_to_crsf_exact(1500),
+  us_to_crsf_exact(1500),
+  us_to_crsf_exact(1500),
+  us_to_crsf_exact(1500)
 };
 
 void setArm(bool armed) {
-  ch[4] = armed ? aux_high() : aux_low();
+  ch[4] = armed ? us_to_crsf_exact(custom()) : us_to_crsf_exact(aux_low());
 }
 
 uint8_t crc8(const uint8_t*data, size_t len){

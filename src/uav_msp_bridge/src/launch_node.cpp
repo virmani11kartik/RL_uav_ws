@@ -51,13 +51,37 @@ enum : uint8_t {
     MSP_ARMING_DISABLE_FLAGS = 150,
     MSP_SET_ARMING = 151,
     MSP_SET_MOTOR = 214,
+
+    MSP_SET_RAW_RC=200,
+};
+
+struct ArmingFlag {
+    uint32_t bit;
+    const char* name;
+};
+
+static const std::vector<ArmingFlag> ARMING_FLAGS = {
+    {1 << 0,  "ARM_SWITCH"},
+    {1 << 1,  "FAILSAFE"},
+    {1 << 2,  "THROTTLE_HIGH"},
+    {1 << 3,  "ANGLE_MODE"},
+    {1 << 4,  "BOOT_GRACE_TIME"},
+    {1 << 5,  "NO_GYRO"},
+    {1 << 6,  "RX_FAILSAFE / NO_RX"},
+    {1 << 7,  "MSP_OVERRIDE"},
+    {1 << 8,  "CLI_ACTIVE"},
+    {1 << 9,  "PREARM"},
+    {1 << 10, "NO_ACC_CAL"},
+    {1 << 11, "MOTOR_PROTOCOL"},
+    {1 << 12, "AIRMODE"},
+    // you can extend this later if needed
 };
 
 class LaunchNode : public rclcpp::Node {
 public:
     LaunchNode() : Node("launch_node") {
         // Declare parameters
-        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM0");
+        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM1");
         baud_ = declare_parameter<int>("baud", 115200);
         debug_ = declare_parameter<bool>("debug", false);
         
@@ -81,12 +105,12 @@ public:
         enable_bat_ = declare_parameter<bool>("enable_battery", true);
         enable_mot_ = declare_parameter<bool>("enable_motors", true);
         enable_srv_ = declare_parameter<bool>("enable_servos", false);
-        enable_rc_ = declare_parameter<bool>("enable_rc", false);
+        enable_rc_ = declare_parameter<bool>("enable_rc", true);
         enable_gps_ = declare_parameter<bool>("enable_gps", false);
         enable_status_ = declare_parameter<bool>("enable_status", true);
         enable_temp_ = declare_parameter<bool>("enable_temperature", false);
         enable_esc_ = declare_parameter<bool>("enable_esc", false);
-        enable_arming_ = declare_parameter<bool>("enable_arming_flags", false);
+        enable_arming_ = declare_parameter<bool>("enable_arming_flags", true);
         
         RCLCPP_INFO(get_logger(), "=================================================");
         RCLCPP_INFO(get_logger(), "     UNIFIED FC CONTROL & TELEMETRY NODE");
@@ -178,6 +202,27 @@ public:
         RCLCPP_INFO(get_logger(), "✓ Shutdown complete");
     }
 
+    std::string decodeArmingFlags(uint32_t flags)
+    {
+        if (flags == 0) {
+            return "NONE (ARMING ALLOWED)";
+        }
+
+        std::ostringstream oss;
+        bool first = true;
+
+        for (const auto& f : ARMING_FLAGS) {
+            if (flags & f.bit) {
+                if (!first) oss << ", ";
+                oss << f.name;
+                first = false;
+            }
+        }
+
+        return oss.str();
+    }
+
+
 private:
     void createSubscribers() {
         // Motor control subscribers
@@ -211,6 +256,12 @@ private:
         disarm_cmd_sub_ = create_subscription<std_msgs::msg::Bool>(
             "/arming/disarm_command", 10,
             std::bind(&LaunchNode::disarmCommandCallback, this, std::placeholders::_1));
+
+        // RC Suscriber
+        rc_cmd_sub_ = create_subscription<std_msgs::msg::UInt16MultiArray>(
+            "/rc_control/command", 10,
+            std::bind(&LaunchNode::rcCommandCallback, this, std::placeholders::_1));
+
     }
     
     void createPublishers() {
@@ -251,6 +302,7 @@ private:
         msp_gps_vel_pub_ = create_publisher<geometry_msgs::msg::TwistStamped>("/msp/gps/velocity", 10);
         msp_esc_pub_ = create_publisher<std_msgs::msg::String>("/msp/esc_telemetry", 10);
         msp_arming_pub_ = create_publisher<std_msgs::msg::UInt32>("/msp/arming_flags", 10);
+        msp_arming_text_pub_ = create_publisher<std_msgs::msg::String>("/msp/arming_flags_text", 10);
         msp_servo_pub_ = create_publisher<std_msgs::msg::UInt16MultiArray>("/msp/servos", 10);
         msp_fc_info_pub_ = create_publisher<std_msgs::msg::String>("/msp/fc_info", 10);
     }
@@ -437,6 +489,32 @@ private:
             publishMotorStatus("EMERGENCY STOP");
         }
     }
+
+     void rcCommandCallback(const std_msgs::msg::UInt16MultiArray::SharedPtr msg)
+    {
+        if (msg->data.size() < 4) {
+            RCLCPP_ERROR(get_logger(), "RC command needs at least 4 channels (roll,pitch,yaw,throttle)");
+            return;
+        }
+
+        std::array<uint16_t, 8> rc = {
+            (uint16_t)msg->data[0], // roll
+            (uint16_t)msg->data[1], // pitch
+            (uint16_t)msg->data[2], // yaw
+            (uint16_t)msg->data[3], // throttle
+            (msg->data.size() > 4 ? (uint16_t)msg->data[4] : 1000),
+            (msg->data.size() > 5 ? (uint16_t)msg->data[5] : 1000),
+            (msg->data.size() > 6 ? (uint16_t)msg->data[6] : 1000),
+            (msg->data.size() > 7 ? (uint16_t)msg->data[7] : 1000),
+        };
+
+        // clamp the first 4 channels to 1000-2000 for safety
+        for (int i = 0; i < 4; i++) rc[i] = std::clamp((int)rc[i], 1000, 2000);
+
+        if (setRawRC(rc)) {
+            last_command_time_ = now();
+        }
+    }
     
     // ========== ARMING CALLBACKS ==========
     void armCommandCallback(const std_msgs::msg::Bool::SharedPtr msg) {
@@ -473,6 +551,7 @@ private:
             }
         }
     }
+
     
     // ========== HIGH PRIORITY TELEMETRY (20Hz default) ==========
     void tickHigh() {
@@ -722,14 +801,44 @@ private:
             msp_esc_pub_->publish(msg);
         }
         
+        // // Arming Disable Flags (MSP topic)
+        // if (enable_arming_ && requestMSP(MSP_ARMING_DISABLE_FLAGS, {}, resp, 0.2)) {
+        //     if (resp.size() >= 4) {
+        //         uint32_t flags = *(uint32_t*)&resp[0];
+                
+        //         auto msg = std_msgs::msg::UInt32();
+        //         msg.data = flags;
+        //         msp_arming_pub_->publish(msg);
+        //     }
+        // }
+
         // Arming Disable Flags (MSP topic)
         if (enable_arming_ && requestMSP(MSP_ARMING_DISABLE_FLAGS, {}, resp, 0.2)) {
             if (resp.size() >= 4) {
-                uint32_t flags = *(uint32_t*)&resp[0];
-                
+
+                uint32_t flags =
+                    (uint32_t(resp[0])      ) |
+                    (uint32_t(resp[1]) <<  8) |
+                    (uint32_t(resp[2]) << 16) |
+                    (uint32_t(resp[3]) << 24);
+
+                // Publish raw value (unchanged)
                 auto msg = std_msgs::msg::UInt32();
                 msg.data = flags;
                 msp_arming_pub_->publish(msg);
+
+                auto smsg = std_msgs::msg::String();
+                smsg.data = decodeArmingFlags(flags);
+                msp_arming_text_pub_->publish(smsg);
+
+                // RCLCPP_INFO_THROTTLE(
+                //     get_logger(),
+                //     *get_clock(),
+                //     1000,  // once per second
+                //     "[ARMING FLAGS] raw=%u -> %s",
+                //     flags,
+                //     decodeArmingFlags(flags).c_str()
+                // );
             }
         }
         
@@ -809,6 +918,21 @@ private:
         std::vector<uint8_t> response;
         return requestMSP(MSP_SET_MOTOR, payload, response, 0.1);
     }
+
+    bool setRawRC(const std::array<uint16_t, 8>& rc)
+    {
+        std::vector<uint8_t> payload;
+        payload.reserve(16);
+
+        for (auto v : rc) {
+            payload.push_back(v & 0xFF);
+            payload.push_back((v >> 8) & 0xFF);
+        }
+
+        std::vector<uint8_t> response;
+        return requestMSP(MSP_SET_RAW_RC, payload, response, 0.1);
+    }
+
     
     void stopAllMotors() {
         std::vector<uint16_t> stop_values(num_motors_, min_throttle_);
@@ -878,6 +1002,8 @@ private:
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr emergency_stop_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr arm_cmd_sub_;
     rclcpp::Subscription<std_msgs::msg::Bool>::SharedPtr disarm_cmd_sub_;
+    rclcpp::Subscription<std_msgs::msg::UInt16MultiArray>::SharedPtr rc_cmd_sub_;
+
     
     // Publishers - Motor Control
     rclcpp::Publisher<std_msgs::msg::UInt16MultiArray>::SharedPtr motor_state_pub_;
@@ -906,6 +1032,7 @@ private:
     rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr msp_gps_vel_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr msp_esc_pub_;
     rclcpp::Publisher<std_msgs::msg::UInt32>::SharedPtr msp_arming_pub_;
+    rclcpp::Publisher<std_msgs::msg::String>::SharedPtr msp_arming_text_pub_;
     rclcpp::Publisher<std_msgs::msg::UInt16MultiArray>::SharedPtr msp_servo_pub_;
     rclcpp::Publisher<std_msgs::msg::String>::SharedPtr msp_fc_info_pub_;
     

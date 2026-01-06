@@ -57,11 +57,25 @@ ament_target_dependencies(launch_node
   diagnostic_msgs
 )
 
+# IBUS node
+add_executable(ibus_tx_node 
+  src/ibus_tx_node.cpp
+)
+
+ament_target_dependencies(ibus_tx_node
+  rclcpp
+  std_msgs
+  sensor_msgs
+  geometry_msgs
+  diagnostic_msgs
+)
+
 # Install executables
 install(TARGETS
   telemetry_node
   arming_node
   launch_node
+  ibus_tx_node
   DESTINATION lib/${PROJECT_NAME}
 )
 
