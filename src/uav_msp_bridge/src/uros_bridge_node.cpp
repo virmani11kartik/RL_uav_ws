@@ -8,11 +8,9 @@
 #include <string>
 #include <sstream>
 #include <cerrno>
-
 #include <unistd.h>
 #include <fcntl.h>
 #include <termios.h>
-#include <sys/ioctl.h>
 
 using namespace std::chrono_literals;
 
@@ -43,6 +41,14 @@ static inline uint16_t clamp_us(int v) {
   if (v > 2200) v = 2200;
   return static_cast<uint16_t>(v);
 }
+
+// Defaults: A,E,T,R,AUX1,AUX2,AUX3,AUX4
+static inline uint16_t def_A()    { return 1500; }
+static inline uint16_t def_E()    { return 1500; }
+static inline uint16_t def_T()    { return  988; }
+static inline uint16_t def_R()    { return 1500; }
+static inline uint16_t def_AUX1() { return  900; }
+static inline uint16_t def_AUX()  { return  900; }
 
 class SerialPort {
 public:
@@ -84,7 +90,6 @@ public:
       return false;
     }
 
-    // Clear buffers
     tcflush(fd_, TCIOFLUSH);
 
     // Many USB CDC devices (including ESP) reboot on open; wait for it to come up
@@ -117,7 +122,6 @@ public:
     return true;
   }
 
-  // ADDED: Read function for debugging
   int read_available(uint8_t* buffer, size_t max_size) {
     if (fd_ < 0) return -1;
     return ::read(fd_, buffer, max_size);
@@ -132,13 +136,21 @@ private:
 class URosBridge : public rclcpp::Node {
 public:
   URosBridge() : Node("ros_to_esp_rc") {
-    port_    = declare_parameter<std::string>("port", "/dev/ttyACM0");
-    baud_    = declare_parameter<int>("baud", 115200);
-    rate_hz_ = declare_parameter<double>("rate_hz", 50.0);
-    debug_   = declare_parameter<bool>("debug", false);
+    port_          = declare_parameter<std::string>("port", "/dev/ttyACM0");
+    baud_          = declare_parameter<int>("baud", 115200);
+    rate_hz_       = declare_parameter<double>("rate_hz", 50.0);
+    debug_         = declare_parameter<bool>("debug", false);
+    rc_timeout_ms_ = declare_parameter<int>("rc_timeout_ms", 300);  // NEW
+
+    if (rc_timeout_ms_ < 0) rc_timeout_ms_ = 0;
 
     // Defaults: A,E,T,R,AUX1,AUX2,AUX3,AUX4
-    set_rc({1500, 1500, 885, 1500, 900, 900, 900, 900});
+    set_rc({def_A(), def_E(), def_T(), def_R(), def_AUX1(), def_AUX(), def_AUX(), def_AUX()});
+
+    // AUX1 hold behavior: keep last seen AUX1 on timeout
+    last_aux1_ = def_AUX1();
+    last_msg_time_ = now();
+    have_msg_ = false;
 
     if (!serial_.open(port_, baud_)) {
       RCLCPP_FATAL(get_logger(), "Failed to open %s @ %d", port_.c_str(), baud_);
@@ -147,7 +159,8 @@ public:
     RCLCPP_INFO(get_logger(), "✓ Serial open: %s @ %d", port_.c_str(), baud_);
 
     sub_ = create_subscription<std_msgs::msg::UInt16MultiArray>(
-      "/rc_aetr_aux", rclcpp::QoS(10),
+      "/rc_aetr_aux",
+      rclcpp::QoS(10),
       std::bind(&URosBridge::rc_cb, this, std::placeholders::_1));
 
     const auto period = std::chrono::duration<double>(1.0 / std::max(1.0, rate_hz_));
@@ -155,7 +168,6 @@ public:
       std::chrono::duration_cast<std::chrono::nanoseconds>(period),
       std::bind(&URosBridge::tx_tick, this));
 
-    // ADDED: Timer to read ESP responses for debugging
     if (debug_) {
       read_timer_ = create_wall_timer(
         100ms,
@@ -163,12 +175,22 @@ public:
     }
 
     RCLCPP_INFO(get_logger(), "✓ Bridge ready at %.1f Hz", rate_hz_);
+    RCLCPP_INFO(get_logger(), "  Sub: /rc_aetr_aux (8x uint16 us: A E T R AUX1 AUX2 AUX3 AUX4)");
+    RCLCPP_INFO(get_logger(), "  Timeout: %d ms (A/E/T/R + AUX2-4 -> defaults; AUX1 held)", rc_timeout_ms_);
   }
 
 private:
   struct Rc8 { uint16_t v[8]; };
+
+  // Shared RC values
   std::atomic_flag lock_ = ATOMIC_FLAG_INIT;
-  Rc8 rc_{ {1500, 1500, 885, 1500, 900, 900, 900, 900} };
+  Rc8 rc_{ {def_A(), def_E(), def_T(), def_R(), def_AUX1(), def_AUX(), def_AUX(), def_AUX()} };
+
+  // NEW watchdog state
+  rclcpp::Time last_msg_time_;
+  bool have_msg_ = false;
+  int rc_timeout_ms_ = 300;
+  uint16_t last_aux1_ = def_AUX1();   // hold AUX1 across timeout
 
   void set_rc(const std::initializer_list<int>& vals) {
     Rc8 tmp{};
@@ -183,23 +205,38 @@ private:
 
   void rc_cb(const std_msgs::msg::UInt16MultiArray::SharedPtr msg) {
     if (msg->data.size() < 8) {
-      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, 
+      RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000,
                            "RC message has only %zu values, need 8", msg->data.size());
       return;
     }
+
     Rc8 tmp{};
     for (int i = 0; i < 8; i++) {
       tmp.v[i] = clamp_us(static_cast<int>(msg->data[i]));
     }
+
+    // Update shared
     while (lock_.test_and_set(std::memory_order_acquire)) {}
     rc_ = tmp;
     lock_.clear(std::memory_order_release);
 
+    // NEW: watchdog bookkeeping
+    last_msg_time_ = now();
+    have_msg_ = true;
+    last_aux1_ = tmp.v[4];  // hold AUX1
+
     if (debug_) {
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
-                           "RC update: A=%u E=%u T=%u R=%u AUX1=%u",
-                           tmp.v[0], tmp.v[1], tmp.v[2], tmp.v[3], tmp.v[4]);
+                           "RC update: A=%u E=%u T=%u R=%u AUX1=%u AUX2=%u",
+                           tmp.v[0], tmp.v[1], tmp.v[2], tmp.v[3], tmp.v[4], tmp.v[5]);
     }
+  }
+
+  bool is_timed_out() const {
+    if (!have_msg_) return true;
+    if (rc_timeout_ms_ == 0) return false; // disabled
+    const auto dt_ns = (now() - last_msg_time_).nanoseconds();
+    return dt_ns > static_cast<int64_t>(rc_timeout_ms_) * 1000000LL;
   }
 
   void tx_tick() {
@@ -208,13 +245,27 @@ private:
     cur = rc_;
     lock_.clear(std::memory_order_release);
 
-    // Build: "RC A E T R AUX1 AUX2 AUX3 AUX4\n"
-    // FIXED: Using %u to match ESP expectations
+    const bool timed_out = is_timed_out();
+
+    if (timed_out) {
+      // Your requested behavior:
+      // A/E/T/R + AUX2/3/4 -> defaults
+      // AUX1 -> hold last seen
+      cur.v[0] = def_A();
+      cur.v[1] = def_E();
+      cur.v[2] = def_T();
+      cur.v[3] = def_R();
+      cur.v[4] = last_aux1_; // hold
+      cur.v[5] = def_AUX();
+      cur.v[6] = def_AUX();
+      cur.v[7] = def_AUX();
+    }
+
     char line[128];
-    int n = snprintf(line, sizeof(line),
-                     "RC %u %u %u %u %u %u %u %u\n",
-                     cur.v[0], cur.v[1], cur.v[2], cur.v[3],
-                     cur.v[4], cur.v[5], cur.v[6], cur.v[7]);
+    const int n = snprintf(line, sizeof(line),
+                           "RC %u %u %u %u %u %u %u %u\n",
+                           cur.v[0], cur.v[1], cur.v[2], cur.v[3],
+                           cur.v[4], cur.v[5], cur.v[6], cur.v[7]);
     if (n <= 0) return;
 
     tx_count_++;
@@ -223,11 +274,11 @@ private:
     if (!ok) {
       RCLCPP_WARN_THROTTLE(get_logger(), *get_clock(), 2000, "Serial write failed");
     } else if (debug_ && (tx_count_ % 50 == 0)) {
-      RCLCPP_INFO(get_logger(), "Sent %lu frames: %s", tx_count_, line);
+      RCLCPP_INFO(get_logger(), "Sent %lu frames%s: %s",
+                  tx_count_, timed_out ? " (TIMEOUT-FALLBACK)" : "", line);
     }
   }
 
-  // ADDED: Read and log ESP responses
   void read_esp_response() {
     uint8_t buffer[256];
     int n = serial_.read_available(buffer, sizeof(buffer) - 1);

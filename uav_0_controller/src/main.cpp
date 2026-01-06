@@ -16,8 +16,6 @@ static inline void led_set(uint8_t r, uint8_t g, uint8_t b) {
 static const uint8_t CRSF_ADDR_FC = 0xC8;
 static const uint8_t CRSF_TYPE_RC = 0x16;
 
-// IMPORTANT: ESP32-C3 only has Serial1 for hardware UART
-// We'll use Serial1 with custom pins for CRSF
 HardwareSerial CRSF(1);
 constexpr int FC_TX_PIN = 5;          // ESP TX -> FC RX  
 constexpr int FC_RX_PIN = 4;          // ESP RX <- FC TX (optional)
@@ -26,12 +24,12 @@ constexpr int CRSF_BAUDRATE = 420000;
 // ---------------- Defaults (us) ----------------
 static inline uint16_t def_A()    { return 1500; }
 static inline uint16_t def_E()    { return 1500; }
-static inline uint16_t def_T()    { return  885; }
+static inline uint16_t def_T()    { return  988; }
 static inline uint16_t def_R()    { return 1500; }
 static inline uint16_t def_AUX1() { return  900; }
 static inline uint16_t def_AUX()  { return 900; }
 
-constexpr uint32_t RC_TIMEOUT_MS = 250;
+constexpr uint32_t RC_TIMEOUT_MS = 500;
 
 // ---------------- us -> CRSF ----------------
 static inline uint16_t us_to_crsf_exact(int us)
@@ -72,24 +70,36 @@ static uint8_t crc8_crsf(const uint8_t* data, size_t len) {
 // ---------------- Channels in CRSF units ----------------
 static uint16_t ch[16];
 static uint32_t last_rc_ms = 0;
+static int current_rc_us[8];  // Store current RC values in microseconds
 
 static void apply_defaults() {
-  int us8[8] = { def_A(), def_E(), def_T(), def_R(), def_AUX1(), def_AUX(), def_AUX(), def_AUX() };
-  for (int i=0;i<8;i++) us8[i] = clamp_us(us8[i]);
+  current_rc_us[0] = def_A();
+  current_rc_us[1] = def_E();
+  current_rc_us[2] = def_T();
+  current_rc_us[3] = def_R();
+  current_rc_us[4] = def_AUX1();
+  current_rc_us[5] = def_AUX();
+  current_rc_us[6] = def_AUX();
+  current_rc_us[7] = def_AUX();
+  
+  for (int i=0; i<8; i++) current_rc_us[i] = clamp_us(current_rc_us[i]);
 
-  ch[0] = us_to_crsf_exact(us8[0]); // A
-  ch[1] = us_to_crsf_exact(us8[1]); // E
-  ch[2] = us_to_crsf_exact(us8[2]); // T
-  ch[3] = us_to_crsf_exact(us8[3]); // R
-  ch[4] = us_to_crsf_exact(us8[4]); // AUX1
-  ch[5] = us_to_crsf_exact(us8[5]); // AUX2
-  ch[6] = us_to_crsf_exact(us8[6]); // AUX3
-  ch[7] = us_to_crsf_exact(us8[7]); // AUX4
-  for (int i=8;i<16;i++) ch[i] = us_to_crsf_exact(1500);
+  ch[0] = us_to_crsf_exact(current_rc_us[0]);
+  ch[1] = us_to_crsf_exact(current_rc_us[1]);
+  ch[2] = us_to_crsf_exact(current_rc_us[2]);
+  ch[3] = us_to_crsf_exact(current_rc_us[3]);
+  ch[4] = us_to_crsf_exact(current_rc_us[4]);
+  ch[5] = us_to_crsf_exact(current_rc_us[5]);
+  ch[6] = us_to_crsf_exact(current_rc_us[6]);
+  ch[7] = us_to_crsf_exact(current_rc_us[7]);
+  for (int i=8; i<16; i++) ch[i] = us_to_crsf_exact(1500);
 }
 
 static void apply_rc_us(int us8[8]) {
-  for (int i=0;i<8;i++) us8[i] = clamp_us(us8[i]);
+  for (int i=0; i<8; i++) {
+    us8[i] = clamp_us(us8[i]);
+    current_rc_us[i] = us8[i];
+  }
 
   ch[0] = us_to_crsf_exact(us8[0]);
   ch[1] = us_to_crsf_exact(us8[1]);
@@ -99,7 +109,7 @@ static void apply_rc_us(int us8[8]) {
   ch[5] = us_to_crsf_exact(us8[5]);
   ch[6] = us_to_crsf_exact(us8[6]);
   ch[7] = us_to_crsf_exact(us8[7]);
-  for (int i=8;i<16;i++) ch[i] = us_to_crsf_exact(1500);
+  for (int i=8; i<16; i++) ch[i] = us_to_crsf_exact(1500);
 
   last_rc_ms = millis();
 }
@@ -139,11 +149,49 @@ static void send_rc_frame() {
   CRSF.write(f, sizeof(f));
 }
 
+// ---------------- LED State Detection ----------------
+static void update_led() {
+  // Timeout/no data
+  if (last_rc_ms == 0 || (millis() - last_rc_ms > RC_TIMEOUT_MS)) {
+    led_set(255, 0, 0); // RED
+    return;
+  }
+
+  const bool armed = (current_rc_us[4] >= 1000 && current_rc_us[4] <= 1200);
+
+  // "Commanded" detection ignores AUX1 (channel 4)
+  constexpr int TOLERANCE = 10;
+  const int defaults[8] = {def_A(), def_E(), def_T(), def_R(),
+                           def_AUX1(), def_AUX(), def_AUX(), def_AUX()};
+
+  bool is_default_except_aux1 = true;
+  for (int i = 0; i < 8; i++) {
+    if (i == 4) continue; // ignore AUX1
+    if (abs(current_rc_us[i] - defaults[i]) > TOLERANCE) {
+      is_default_except_aux1 = false;
+      break;
+    }
+  }
+  // Color mapping:
+  // BLUE  = armed, but nothing else changed (besides AUX1)
+  // GREEN = some channel other than AUX1 changed (ROS commanded)
+  // YELLOW= disarmed defaults
+  if (!armed && is_default_except_aux1) {
+    led_set(255, 255, 0); // YELLOW
+  } else if (armed && is_default_except_aux1) {
+    led_set(0, 0, 255);   // BLUE
+  } else {
+    led_set(0, 255, 0);   // GREEN
+  }
+}
+
+
+
 // ---------------- USB text RX ----------------
 static uint32_t last_debug_ms = 0;
 
 static void poll_usb_text() {
-  // Periodic heartbeat to show ESP is alive
+  // Periodic heartbeat
   if (millis() - last_debug_ms > 2000) {
     last_debug_ms = millis();
     Serial.print("ALIVE millis=");
@@ -154,7 +202,6 @@ static void poll_usb_text() {
   
   if (!Serial.available()) return;
 
-  // Show we got data
   int avail = Serial.available();
   Serial.print("DATA avail=");
   Serial.println(avail);
@@ -207,7 +254,6 @@ static void poll_usb_text() {
 }
 
 void setup() {
-  // USB Serial for ROS communication
   Serial.begin(115200);
   while (!Serial && millis() < 3000) {
     delay(10);
@@ -219,25 +265,25 @@ void setup() {
   delay(200);
   led_set(255, 0, 0); // Red = waiting for RC
 
-  // CRITICAL: Begin Serial1 with explicit pins BEFORE configuring it
-  // ESP32-C3: Use pins that don't conflict with USB (GPIO20/21 are safe)
   CRSF.begin(CRSF_BAUDRATE, SERIAL_8N1, FC_RX_PIN, FC_TX_PIN);
-  
-  // Give Serial1 time to initialize
   delay(100);
 
   apply_defaults();
   last_rc_ms = 0;
 
-  Serial.println("\n\n=== ESP RC BRIDGE READY ===");
+  Serial.println("\n\n=== ESP RC BRIDGE WITH LED STATES ===");
   Serial.print("Board: ESP32-C3 | USB Serial: ");
   Serial.println(Serial ? "OK" : "FAIL");
   Serial.print("CRSF Serial1 on pins TX=");
   Serial.print(FC_TX_PIN);
   Serial.print(" RX=");
   Serial.println(FC_RX_PIN);
-  Serial.println("Waiting for RC commands...");
-  Serial.println("NOTE: LED will turn GREEN when receiving RC data");
+  Serial.println("\nLED States:");
+  Serial.println("  RED    = No data / timeout");
+  Serial.println("  YELLOW = Default values");
+  Serial.println("  GREEN  = ROS commanded");
+  Serial.println("  BLUE   = Armed (AUX1 1000-1200)");
+  Serial.println("\nWaiting for RC commands...");
   Serial.println();
 }
 
@@ -257,10 +303,6 @@ void loop() {
     send_rc_frame();
   }
 
-  // LED indicates whether we're receiving RC updates
-  if (last_rc_ms != 0 && (millis() - last_rc_ms <= RC_TIMEOUT_MS)) {
-    led_set(0, 255, 0); // Green = receiving
-  } else {
-    led_set(255, 0, 0); // Red = timeout/failsafe
-  }
+  // Update LED based on current state
+  update_led();
 }

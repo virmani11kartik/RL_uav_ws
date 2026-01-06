@@ -105,7 +105,7 @@ public:
         enable_bat_ = declare_parameter<bool>("enable_battery", true);
         enable_mot_ = declare_parameter<bool>("enable_motors", true);
         enable_srv_ = declare_parameter<bool>("enable_servos", false);
-        enable_rc_ = declare_parameter<bool>("enable_rc", true);cd
+        enable_rc_ = declare_parameter<bool>("enable_rc", true);
         enable_gps_ = declare_parameter<bool>("enable_gps", false);
         enable_status_ = declare_parameter<bool>("enable_status", true);
         enable_temp_ = declare_parameter<bool>("enable_temperature", false);
