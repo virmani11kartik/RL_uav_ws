@@ -57,12 +57,12 @@ ament_target_dependencies(launch_node
   diagnostic_msgs
 )
 
-# IBUS node
-add_executable(ibus_tx_node 
-  src/ibus_tx_node.cpp
+# uros node
+add_executable(uros_bridge_node 
+  src/uros_bridge_node.cpp
 )
 
-ament_target_dependencies(ibus_tx_node
+ament_target_dependencies(uros_bridge_node
   rclcpp
   std_msgs
   sensor_msgs
@@ -75,7 +75,7 @@ install(TARGETS
   telemetry_node
   arming_node
   launch_node
-  ibus_tx_node
+  uros_bridge_node
   DESTINATION lib/${PROJECT_NAME}
 )
 

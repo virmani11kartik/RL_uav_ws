@@ -81,13 +81,13 @@ class LaunchNode : public rclcpp::Node {
 public:
     LaunchNode() : Node("launch_node") {
         // Declare parameters
-        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM1");
+        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM0");
         baud_ = declare_parameter<int>("baud", 115200);
         debug_ = declare_parameter<bool>("debug", false);
         
         // Motor control parameters
         num_motors_ = declare_parameter<int>("num_motors", 4);
-        min_throttle_ = declare_parameter<int>("min_throttle", 1000);
+        min_throttle_ = declare_parameter<int>("min_throttle", 800);
         max_throttle_ = declare_parameter<int>("max_throttle", 2000);
         safety_enabled_ = declare_parameter<bool>("safety_enabled", true);
         command_timeout_ms_ = declare_parameter<int>("command_timeout_ms", 1000);
@@ -105,7 +105,7 @@ public:
         enable_bat_ = declare_parameter<bool>("enable_battery", true);
         enable_mot_ = declare_parameter<bool>("enable_motors", true);
         enable_srv_ = declare_parameter<bool>("enable_servos", false);
-        enable_rc_ = declare_parameter<bool>("enable_rc", true);
+        enable_rc_ = declare_parameter<bool>("enable_rc", true);cd
         enable_gps_ = declare_parameter<bool>("enable_gps", false);
         enable_status_ = declare_parameter<bool>("enable_status", true);
         enable_temp_ = declare_parameter<bool>("enable_temperature", false);
@@ -509,7 +509,7 @@ private:
         };
 
         // clamp the first 4 channels to 1000-2000 for safety
-        for (int i = 0; i < 4; i++) rc[i] = std::clamp((int)rc[i], 1000, 2000);
+        for (int i = 0; i < 4; i++) rc[i] = std::clamp((int)rc[i], 800, 2000);
 
         if (setRawRC(rc)) {
             last_command_time_ = now();
