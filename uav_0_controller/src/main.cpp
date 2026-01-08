@@ -27,7 +27,7 @@ static inline uint16_t def_E()    { return 1500; }
 static inline uint16_t def_T()    { return  988; }
 static inline uint16_t def_R()    { return 1500; }
 static inline uint16_t def_AUX1() { return  900; }
-static inline uint16_t def_AUX()  { return 900; }
+static inline uint16_t def_AUX()  { return 1500; }
 
 constexpr uint32_t RC_TIMEOUT_MS = 500;
 

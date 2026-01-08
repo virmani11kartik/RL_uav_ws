@@ -81,7 +81,7 @@ class LaunchNode : public rclcpp::Node {
 public:
     LaunchNode() : Node("launch_node") {
         // Declare parameters
-        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM0");
+        port_ = declare_parameter<std::string>("device_path", "/dev/ttyACM1");
         baud_ = declare_parameter<int>("baud", 115200);
         debug_ = declare_parameter<bool>("debug", false);
         

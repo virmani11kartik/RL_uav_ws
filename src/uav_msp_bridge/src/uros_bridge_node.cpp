@@ -48,7 +48,7 @@ static inline uint16_t def_E()    { return 1500; }
 static inline uint16_t def_T()    { return  988; }
 static inline uint16_t def_R()    { return 1500; }
 static inline uint16_t def_AUX1() { return  900; }
-static inline uint16_t def_AUX()  { return  900; }
+static inline uint16_t def_AUX()  { return  1500; }
 
 class SerialPort {
 public:
@@ -224,6 +224,7 @@ private:
     last_msg_time_ = now();
     have_msg_ = true;
     last_aux1_ = tmp.v[4];  // hold AUX1
+    // last_aux1_ = def_AUX1();
 
     if (debug_) {
       RCLCPP_INFO_THROTTLE(get_logger(), *get_clock(), 1000,
