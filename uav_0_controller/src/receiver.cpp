@@ -211,16 +211,28 @@ void setup() {
   delay(200);
   led_set(255, 0, 0); // Red = waiting
 
-  // Set device as a Wi-Fi Station with Long Range
+  // Set device as a Wi-Fi Station
   WiFi.mode(WIFI_STA);
   
-  // Enable Long Range mode
-  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  uint8_t customMAC[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
+  esp_wifi_set_mac(WIFI_IF_STA, customMAC);
+  
+  // Enable Long Range mode (if supported)
+  #ifdef WIFI_PROTOCOL_LR
+  esp_err_t result = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  if (result == ESP_OK) {
+    Serial.println("Long Range mode enabled");
+  } else {
+    Serial.println("Long Range mode not available, using standard mode");
+  }
+  #else
+  Serial.println("Long Range mode not supported on this platform");
+  #endif
 
   Serial.println("\n\n=== ESP-NOW RECEIVER (Wireless to CRSF) ===");
   Serial.print("MAC Address: ");
   Serial.println(WiFi.macAddress());
-  Serial.println("**COPY THIS MAC TO TRANSMITTER CODE**");
+  Serial.println("(Custom MAC set to AA:BB:CC:DD:EE:01)");
 
   // Init ESP-NOW
   if (esp_now_init() != ESP_OK) {

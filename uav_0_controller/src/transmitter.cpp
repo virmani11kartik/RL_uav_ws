@@ -1,9 +1,8 @@
 #include <Arduino.h>
 #include <esp_now.h>
 #include <WiFi.h>
-#include <Adafruit_NeoPixel.h>
 #include <esp_wifi.h>
-
+#include <Adafruit_NeoPixel.h>
 
 #ifndef RGB_PIN
 #define RGB_PIN 2
@@ -16,9 +15,8 @@ static inline void led_set(uint8_t r, uint8_t g, uint8_t b) {
   led.show();
 }
 
-// Replace with your receiver ESP's MAC address
-// To find it, upload receiver code first and check Serial output
-uint8_t receiverMAC[] = {0xFF, 0xFF, 0xFF, 0xFF, 0xFF, 0xFF}; // BROADCAST (or set specific MAC)
+// Set receiver MAC address (must match receiver's custom MAC)
+uint8_t receiverMAC[] = {0xAA, 0xBB, 0xCC, 0xDD, 0xEE, 0x01};
 
 // Data structure to send (matches receiver)
 typedef struct {
@@ -52,8 +50,17 @@ void setup() {
   // Set device as a Wi-Fi Station with Long Range mode
   WiFi.mode(WIFI_STA);
   
-  // Enable Long Range mode (requires ESP32-C3 or ESP32-S2/S3)
-  esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  // Enable Long Range mode (if supported)
+  #ifdef WIFI_PROTOCOL_LR
+  esp_err_t result = esp_wifi_set_protocol(WIFI_IF_STA, WIFI_PROTOCOL_11B | WIFI_PROTOCOL_11G | WIFI_PROTOCOL_11N | WIFI_PROTOCOL_LR);
+  if (result == ESP_OK) {
+    Serial.println("Long Range mode enabled");
+  } else {
+    Serial.println("Long Range mode not available, using standard mode");
+  }
+  #else
+  Serial.println("Long Range mode not supported on this platform");
+  #endif
   
   Serial.println("\n\n=== ESP-NOW TRANSMITTER (USB to Wireless) ===");
   Serial.print("MAC Address: ");
@@ -91,7 +98,6 @@ void setup() {
   txData.rc_us[7] = 1500; // AUX4
 
   led_set(255, 255, 0); // Yellow = ready
-  Serial.println("Long Range mode enabled");
   Serial.println("Ready to receive RC commands via USB...");
   Serial.println("Format: RC A E T R AUX1 AUX2 AUX3 AUX4");
   Serial.println();
