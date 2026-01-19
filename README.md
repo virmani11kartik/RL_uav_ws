@@ -30,13 +30,13 @@ The design prioritizes:
 ## 🎥 Demo Videos
 
 ### Full System Demo (Sim → Real Control Path)
-<video src="RL_uav_ws\assets\sim.MP4" controls width="720"></video>
+<video src="assets\sim.MP4" controls width="720"></video>
 
 > RL policy inference → ROS 2 → MSP → Betaflight → FC response
 
 ---
 
-<video src="RL_uav_ws\assets\IMG_0236.MOV" controls width="720"></video>
+<video src="assets\IMG_0236.MOV" controls width="720"></video>
 
 > Visual feedback for armed / default / fallback states
 
@@ -45,7 +45,7 @@ The design prioritizes:
 ## 🖼️ System Architecture
 
 ### High-Level Control Stack
-![System Architecture](RL_uav_ws\assets\pic1.JPG)
+![System Architecture](assets\pic1.JPG)
 
 ---
 
