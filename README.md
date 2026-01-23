@@ -40,6 +40,10 @@ The design prioritizes:
 
 > Visual feedback for armed / default / fallback states
 
+<video src="assets\IMG_0456.MOV" controls width="720"></video>
+
+> Hovering Test
+
 ---
 
 ## 🖼️ System Architecture
@@ -49,8 +53,8 @@ The design prioritizes:
 
 ---
 
-### Hardware Wiring Overview
-![Wiring Diagram](docs/media/wiring_diagram.png)
+<!-- ### Hardware Wiring Overview
+![Wiring Diagram](docs/media/wiring_diagram.png) -->
 
 ---
 
