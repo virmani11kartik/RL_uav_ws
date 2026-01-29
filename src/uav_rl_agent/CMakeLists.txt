@@ -27,4 +27,8 @@ install(PROGRAMS scripts/rl_agent_node.py
   DESTINATION lib/${PROJECT_NAME}
 )
 
+install(PROGRAMS scripts/flight_vis_node.py
+  DESTINATION lib/${PROJECT_NAME}
+)
+
 ament_package()

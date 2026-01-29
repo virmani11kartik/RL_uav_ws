@@ -1,253 +1,273 @@
 # RL-Drone  
-**Sim-to-Real Reinforcement Learning Stack for Racing Quadrotors**
+**Sim-to-Real Reinforcement Learning Control Stack for Quadrotors**
 
-End-to-end pipeline to deploy **PyTorch RL policies (.pt)** on real racing drones using  
+End-to-end system to deploy **PyTorch RL policies (`.pt`)** on real quadrotors using  
 **ROS 2 + Betaflight MSP + ESP32 (CRSF / RC override)**.
 
-This project bridges **simulation-trained policies (Isaac / IsaacLab / Gym)** to real quadrotors with
-explicit safety gating, arming logic, and robust fallback behavior.
+This project focuses on **real-world deployment constraints**: deterministic control paths, explicit authority handoff, hardware-enforced safety, and recoverable failure modes. It is designed for operation on real flight hardware, not as a simulator-only demo.
 
 ---
 
-## 🔥 Project Overview
+## Project Summary
 
-This repository implements a **full sim-to-real control stack** for RL-based drone racing:
+This repository implements a complete **sim-to-real autonomy stack** for RL-controlled drones:
 
-- RL policy inference on an onboard SBC
-- ROS 2 as the control, safety, and orchestration layer
-- Betaflight MSP for low-latency FC command & telemetry
-- ESP32-based RC / AUX handling with visual state feedback
-- Explicit arming, disarming, and timeout-based failsafes
+- RL policy inference on an onboard SBC  
+- ROS 2 as the control, safety, and arbitration layer  
+- Betaflight MSP for low-latency flight-controller command and telemetry  
+- ESP32-based RC and AUX enforcement with hardware-visible state feedback  
+- Explicit arming, disarming, and timeout-based failsafes  
 
-The design prioritizes:
-- **Deterministic control paths**
-- **Clear arming semantics**
-- **Recoverable failure modes**
-- **Debuggability at every layer**
+The system is designed to ensure:
 
----
-
-## 🎥 Demo Videos
-
-### Full System Demo (Sim → Real Control Path)
-<video src="assets\sim.MP4" controls width="720"></video>
-
-> RL policy inference → ROS 2 → MSP → Betaflight → FC response
+- Control loops never block on perception or inference  
+- Loss of software authority always reverts to safe RC behavior  
+- Flight-controller firmware remains unmodified  
+- All state transitions are externally observable  
 
 ---
 
-<video src="assets\IMG_0236.MOV" controls width="720"></video>
+## Demo Videos
 
-> Visual feedback for armed / default / fallback states
+### Full System Demo — Sim to Real Control Path
+RL policy inference → ROS 2 arbitration → MSP → Betaflight → FC actuation  
 
-<video src="assets\IMG_0456.MOV" controls width="720"></video>
+<video controls src="https://github.com/user-attachments/assets/sim.MP4" title="(assets/sim.MP4)"></video>
 
-> Hovering Test
+### Hardware State Feedback
+Visual feedback for armed, idle, and fallback states  
+
+<video controls src="https://github.com/user-attachments/assets/IMG_0236.MOV" title="(assets/IMG_0236.MOV)"></video>
+
+### Hover Test
+Stability test under autonomous control  
+
+<video controls src="https://github.com/user-attachments/assets/IMG_0456.MOV" title="assets/IMG_0456.MOV"></video>
 
 ---
 
-## 🖼️ System Architecture
+## System Architecture
 
 ### High-Level Control Stack
-![System Architecture](assets\pic1.JPG)
+![System Architecture](assets/pic1.jpeg)
+
+### Mechanical Design
+![CAD Overview](assets/cad.PNG)
+
+Deadcat-style frame selected to preserve a clean forward camera field of view while maintaining sufficient control authority for autonomous flight.
 
 ---
 
-<!-- ### Hardware Wiring Overview
-![Wiring Diagram](docs/media/wiring_diagram.png) -->
+## Core Design Principles
+
+### Control Authority Model
+- ROS 2 owns high-level control authority  
+- ESP32 enforces RC-side safety and arming semantics  
+- Betaflight remains unmodified and safety-compliant  
+- A physical RC kill always overrides software  
+
+### Why MSP + RC Hybrid
+- MSP provides structured, low-latency access to the flight controller  
+- RC channels remain the universally trusted safety interface  
+- AUX channels enable explicit arming and mode transitions  
+- No firmware modification required, improving field safety and maintainability  
 
 ---
 
-## 🧠 Core Concepts
-
-### Control Philosophy
-- **ROS 2 owns authority**
-- **ESP32 enforces RC-side safety**
-- **Betaflight remains unmodified**
-- **No FC firmware hacks required**
-
-### Why MSP + RC Hybrid?
-- MSP gives structured access to the FC
-- RC channels remain the universal safety interface
-- AUX channels provide deterministic arming & mode control
-- Hardware kill remains valid at all times
-
----
-
-## 📦 Repository Structure
+## Repository Structure
 
 ```bash
 RL_uav_ws/
 ├── src/
-│ ├── uav_msp_bridge/ # ROS2 ↔ Betaflight MSP bridge
-│ ├── uav_rl_agent/ # PyTorch policy inference node
-│ ├── uav_control_cpp/ # Safety, gating, fallback logic
-│ └── uav_msgs/ # (optional) custom messages
+│   ├── uav_msp_bridge/      # ROS 2 ↔ Betaflight MSP interface
+│   ├── uav_rl_agent/        # PyTorch policy inference node
+│   ├── uav_control_cpp/     # Safety, gating, timeout & fallback logic
+│   └── uav_msgs/            # (optional) custom messages
 │
 ├── firmware/
-│ └── esp_rc_bridge/ # ESP32 CRSF / RC + NeoPixel firmware
+│   └── esp_rc_bridge/       # ESP32 CRSF / RC + NeoPixel firmware
 │
 ├── configs/
-│ ├── betaflight/ # CLI dumps, ports, AUX configs
-│ └── params/ # ROS2 YAML parameter files
+│   ├── betaflight/          # CLI dumps, ports, AUX configs
+│   └── params/              # ROS 2 YAML parameter files
 │
 ├── docs/
-│ ├── media/ # Images & videos (used in README)
-│ ├── wiring/ # Pinouts & schematics
-│ └── logs/ # Example logs & captures
+│   ├── media/               # Images & videos
+│   ├── wiring/              # Pinouts & schematics
+│   └── logs/                # Example logs & captures
 │
 └── README.md
 ```
 
 ---
 
-## 🧩 Hardware Stack
+## Hardware Stack
 
 ### Flight System
+
 - Betaflight-compatible flight controller
 - ELRS (CRSF) receiver
 - ESP32 / ESP32-C3 microcontroller
-- NeoPixel (single-pixel status LED)
+- NeoPixel single-pixel status LED
 
 ### Compute
+
 - SBC (Jetson / Radxa / Raspberry Pi class)
 - ROS 2 (Humble / Jazzy)
 - PyTorch inference runtime
 
 ---
 
-## 🛰️ ROS 2 Interface
+## ROS 2 Interface
 
 ### Primary Control Topic
-/rc_aetr_aux (std_msgs/UInt16MultiArray)
 
+```
+/rc_aetr_aux   (std_msgs/UInt16MultiArray)
+```
 
-**Channel ordering (example):**
+Channel ordering (example):
+
+```
 [A, E, T, R, AUX1, AUX2, AUX3, AUX4]
+```
 
+- **AETR**: control inputs
+- **AUX1**: ARM / DISARM
+- **Remaining AUX**: modes, failsafe states, experiment flags
 
-- `AETR` → control inputs
-- `AUX1` → ARM / DISARM
-- Remaining AUX → modes / failsafe / custom states
+ROS publishes fixed-rate, bounded packets. Timeouts are handled explicitly; stale commands are never reused.
 
 ---
 
-## 🔐 Arming & Safety Logic
+## Arming and Safety Logic
 
 ### Supported Modes
 
 #### Mode A — Disarm on Stop (recommended)
-- RL node publishes commands
-- On timeout or node exit:
-  - AUX1 → DISARM
-  - AETR → neutral
+
+- RL node publishes commands continuously
+- On timeout, crash, or node exit:
+  - AUX1 set to DISARM
+  - AETR reset to neutral
+  - Control authority returned fully to RC
 
 #### Mode B — Stay Armed on Stop (bench testing only)
+
 - AUX1 remains armed
-- AETR + AUX2+ reset to defaults
+- AETR and AUX2+ reset to defaults
 
-⚠️ **Always test with props off first**
-
----
-
-## 🔌 ESP32 Firmware Behavior
-
-### NeoPixel State Encoding (example)
-| State            | Color |
-|------------------|-------|
-| Boot / Idle      | Blue  |
-| Armed            | Green |
-| Timeout / Error  | Red   |
-
-> NeoPixel provides immediate hardware-level visibility into system state.
+**Always test with props removed.**
 
 ---
 
-### ESP32 Notes (Important)
-- ESP32-C3 boards often **share USB + UART pins**
-- Excessive `Serial.print()` can:
-  - delay RC updates
-  - block LED state changes
-- Recommended:
-  - reduce print rate
-  - separate debug UART from RC UART
-  - avoid USB-conflicting pins
+## ESP32 Firmware Behavior
+
+### NeoPixel State Encoding
+
+| State          | Color |
+|----------------|-------|
+| Boot / Idle    | Blue  |
+| Armed          | Green |
+| Timeout / Error| Red   |
+
+The NeoPixel provides hardware-level observability of system state, independent of ROS logs or SBC health.
+
+### ESP32 Notes
+
+- ESP32-C3 boards often share USB and UART pins
+- Excessive serial printing can delay RC updates and LED state changes
+- Recommended practices:
+  - Limit print rate
+  - Separate debug UART from RC UART
+  - Avoid USB-conflicting pins
 
 ---
 
-## 🛠️ Build & Run
+## Build and Run
 
 ### Build ROS Workspace
+
 ```bash
 cd RL_uav_ws
 colcon build --symlink-install
 source install/setup.bash
-Flash ESP32 Firmware
-Located in:
+```
 
+### Flash ESP32 Firmware
+
+Firmware is located in:
+
+```
 firmware/esp_rc_bridge/
-Expected boot output:
+```
 
-NeoPixel blink
+Expected boot behavior:
 
-Serial message: READY
+- NeoPixel blink
+- Serial output: `READY`
 
-Launch Control Stack
+### Launch Control Stack
+
+```bash
 ros2 launch uav_msp_bridge bringup.launch.py
-Manual RC Test
+```
+
+### Manual RC Test
+
+```bash
 ros2 topic pub --rate 100 /rc_aetr_aux std_msgs/msg/UInt16MultiArray \
 "{data: [1500, 1500, 1100, 1500, 1100, 900, 900, 900]}"
-🧪 Known Issues & Debugging
-LED updates delayed
-Cause: UART contention or print flooding
-
-Fix: lower print rate, move UART pins
-
-Armed state never matches default logic
-Do not include AUX1 in is_default checks
-
-AUX1 must be treated independently
-
-Commands persist after node stops
-Ensure timeout logic explicitly resets:
-
-AETR
-
-AUX2+
-
-AUX1 based on safety mode
-
-🛣️ Roadmap
- Unified safety supervisor node
-
- Standardized RC command message
-
- Launch profiles: bench, props_off, flight
-
- rosbag + logging recipes
-
- Wiring diagrams per FC / ESP variant
-
- Hardware-in-loop latency benchmarks
-
-⚠️ Safety Disclaimer
-This project interfaces with real flight hardware.
-
-Test with props removed
-
-Use a physical kill switch
-
-Start with conservative throttle limits
-
-Never trust software alone for safety
-
-📜 License
-To be decided (MIT / BSD recommended).
-
-✨ Credits
-Designed and implemented as part of an ongoing
-sim-to-real RL drone racing research project.
-
+```
 
 ---
 
+## Known Issues and Debugging
+
+### LED updates delayed
+**Cause**: UART contention or excessive serial printing  
+**Fix**: Reduce print rate or reassign UART pins
+
+### Armed state never matches default logic
+Do not include AUX1 in default-state checks; AUX1 must be treated independently
+
+### Commands persist after node stops
+Ensure timeout logic explicitly resets:
+
+- AETR
+- AUX2+
+- AUX1 (depending on safety mode)
+
+---
+
+## Roadmap
+
+- Unified safety supervisor node
+- Standardized RC command message
+- Launch profiles for bench, props-off, and flight testing
+- rosbag and logging workflows
+- Wiring diagrams per FC and ESP variant
+- Hardware-in-loop latency benchmarks
+
+---
+
+## Safety Disclaimer
+
+⚠️ **This project interfaces with real flight hardware.**
+
+- Test with props removed
+- Use a physical kill switch
+- Start with conservative throttle limits
+- Never rely on software alone for safety
+
+---
+
+## License
+
+To be decided .
+
+---
+
+## Credits
+
+Designed and implemented as part of an ongoing sim-to-real reinforcement learning drone autonomy research project.
